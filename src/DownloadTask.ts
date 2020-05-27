@@ -6,8 +6,8 @@
 import DownloadWorker from './DownloadWorker';
 import {Config, DownloadErrorEnum, DownloadEvent, DownloadStatus, ErrorMessage, FileInformationDescriptor, ChunkInfo, FileDescriptor} from './Config';
 import {EventEmitter} from 'events';
-import Logger from './Logger';
-import * as FileOperator from './FileOperator';
+import Logger from './util/Logger';
+import * as FileOperator from './util/FileOperator';
 
 export default class DownloadTask extends EventEmitter {
 

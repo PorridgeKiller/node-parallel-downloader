@@ -6,8 +6,8 @@
 import * as url from 'url';
 import * as http from 'http';
 import * as https from 'https';
-import * as FileOperator from './FileOperator';
-import Logger from './Logger';
+import * as FileOperator from './util/FileOperator';
+import Logger from './util/Logger';
 import {EventEmitter} from 'events';
 import {Config, DownloadErrorEnum, DownloadEvent, DownloadStatus, ErrorMessage} from './Config';
 

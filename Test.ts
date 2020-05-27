@@ -4,9 +4,9 @@
  * Date: 2020-05-24 21:22
  */
 
-import DownloadManager from './DownloadManager';
-import {DownloadEvent} from './Config';
-import Logger from './Logger';
+import DownloadManager from './src/DownloadManager';
+import {DownloadEvent} from './src/Config';
+import Logger from './src/util/Logger';
 
 async function test() {
 

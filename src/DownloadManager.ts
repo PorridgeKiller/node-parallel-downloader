@@ -3,12 +3,12 @@
  * Author: SiFan Wei - weisifan
  * Date: 2020-05-18 17:36
  */
-import Logger from './Logger';
+import Logger from './util/Logger';
 import DownloadTask from './DownloadTask';
 import {Config, DownloadErrorEnum, DownloadEvent, ErrorMessage,
     TaskIdGenerator, FileInformationDescriptor, ChunkInfo, FileDescriptor,
     defaultFileInformationDescriptor, defaultTaskIdGenerator} from './Config';
-import * as FileOperator from './FileOperator';
+import * as FileOperator from './util/FileOperator';
 
 
 
