@@ -18,10 +18,16 @@ export default class DownloadManager {
     private taskIdGenerator?: TaskIdGenerator = defaultTaskIdGenerator;
     private fileInfoDescriptor: FileInformationDescriptor = defaultFileInformationDescriptor;
     private tasks: Map<string, DownloadTask> = new Map<string, DownloadTask>();
+    private maxWorkerCount: number = 10;
     private progressTicktockMillis: number = 200;
 
     public configConfigDir(configDir: string) {
         this.configDir = configDir;
+        return this;
+    }
+
+    public configMaxWorkerCount(maxWorkerCount: number) {
+        this.maxWorkerCount = maxWorkerCount;
         return this;
     }
 
@@ -130,7 +136,13 @@ export default class DownloadManager {
 
 
     private async assembly(taskId: string, downloadUrl: string, storageDir: string, filename: string, chunks: number): Promise<FileDescriptor> {
-        const {configDir, taskIdGenerator} = this;
+        const {configDir, maxWorkerCount, taskIdGenerator} = this;
+        // 控制分块数量不至于太大, 太离谱
+        if (chunks < 1) {
+            chunks = 1;
+        } else if (chunks > maxWorkerCount) {
+            chunks = maxWorkerCount;
+        }
         // @ts-ignore
         const fileDescriptor: FileDescriptor = {
             taskId,

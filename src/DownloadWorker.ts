@@ -3,7 +3,6 @@
  * Author: SiFan Wei - weisifan
  * Date: 2020-05-18 17:35
  */
-import * as fs from 'fs';
 import * as url from 'url';
 import * as http from 'http';
 import * as https from 'https';
@@ -27,6 +26,7 @@ export default class DownloadWorker extends EventEmitter {
     private progressBytes: number = 0;
     private req?: http.ClientRequest;
     private status: DownloadStatus = DownloadStatus.INIT;
+
 
     constructor(taskId: string, downloadDir: string, contentLength: number, contentType: string, index: number,
                 from: number, to: number, downloadUrl: string) {
@@ -79,7 +79,8 @@ export default class DownloadWorker extends EventEmitter {
                 await FileOperator.deleteFileOrDirAsync(this.chunkFilePath);
             }
         }
-        return this.compareAndSwapStatus(DownloadStatus.CANCEL);
+        this.emit(DownloadEvent.CANCELED, this.index);
+        return flag;
     }
 
     /**
@@ -106,7 +107,7 @@ export default class DownloadWorker extends EventEmitter {
      * @param status
      */
     public compareAndSwapStatus(status: DownloadStatus): boolean {
-        if (this.status === status) {
+        if (this.getStatus() === status) {
             // 返回false时候代表要更新的状态和之前的状态一样, 表明重复多余设置
             // false可以用来控制ERROR等回调只执行一次, 因为下载write操作很频繁, 不加控制会回调上百次
             return false;
@@ -226,7 +227,6 @@ export default class DownloadWorker extends EventEmitter {
         });
         req.on('close', () => {
             Logger.info('-> request closed');
-            this.emit(DownloadEvent.CANCELED, 'request closed');
         });
         req.on('abort', () => {
             Logger.info('-> request abort');
@@ -243,7 +243,7 @@ export default class DownloadWorker extends EventEmitter {
         const {chunkFilePath} = this;
         if (resp.statusCode >= 200 && resp.statusCode < 300) {
             // 创建块文件输出流
-            // const writeStream = FileOperator.openWriteStream(chunkFilePath);
+            const appendStream = FileOperator.openAppendStream(chunkFilePath);
             resp.on('data', (dataBytes: any) => {
                 if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOP ||
                     this.getStatus() === DownloadStatus.CANCEL) {
@@ -256,28 +256,8 @@ export default class DownloadWorker extends EventEmitter {
                  * 后者在写入过程中会导致整个nodejs进程假死, 界面不可操作
                  */
                 // fs.appendFileSync(chunkFilePath, dataBytes);
-
-                fs.appendFile(chunkFilePath, dataBytes, (err: NodeJS.ErrnoException) => {
-                    if (!err) {
-                        // 正常
-                        this.updateProgressBytes(dataBytes.length);
-                    } else {
-                        this.error().then((flag) => {
-                            if (!flag) {
-                                return;
-                            }
-                            Logger.error(err);
-                            this.emit(DownloadEvent.ERROR, this.index,
-                                ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR));
-                        });
-                    }
-                });
-
-                // writeStream.write(dataBytes, (err: any) => {
-                //     // Logger.debug('this.getProgressBytes() =', this.getProgressBytes());
-                //     // if (this.getProgressBytes() > 1000000) {
-                //     //     err = new Error();
-                //     // }
+                //
+                // fs.appendFile(chunkFilePath, dataBytes, (err: NodeJS.ErrnoException) => {
                 //     if (!err) {
                 //         // 正常
                 //         this.updateProgressBytes(dataBytes.length);
@@ -292,13 +272,33 @@ export default class DownloadWorker extends EventEmitter {
                 //         });
                 //     }
                 // });
+
+                appendStream.write(dataBytes, (err: any) => {
+                    // Logger.debug('this.getProgressBytes() =', this.getProgressBytes());
+                    // if (this.getProgressBytes() > 1000000) {
+                    //     err = new Error();
+                    // }
+                    if (!err) {
+                        // 正常
+                        this.updateProgressBytes(dataBytes.length);
+                    } else {
+                        this.error().then((flag) => {
+                            if (!flag) {
+                                return;
+                            }
+                            Logger.error(err);
+                            this.emit(DownloadEvent.ERROR, this.index,
+                                ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR));
+                        });
+                    }
+                });
             });
-            resp.on('end', () => {
-                // writeStream.close();
+            resp.on('end', async () => {
+                appendStream.close();
                 // 因为错误而停止下载任务时, 不应该发送finish事件
                 if (this.getStatus() !== DownloadStatus.ERROR) {
                     Logger.debug('-> response end');
-                    this.finish();
+                    await this.finish();
                 } else {
                     Logger.debug('-> response end with error');
                 }

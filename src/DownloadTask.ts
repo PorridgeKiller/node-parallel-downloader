@@ -141,6 +141,14 @@ export default class DownloadTask extends EventEmitter {
                 this.progressNumber = undefined;
             }
             await this.deleteInfoFile();
+            const {workers} = this;
+            if (workers) {
+                for (let i = 0; i < workers.length; i++) {
+                    const worker = workers[i];
+                    await worker.cancel();
+                }
+            }
+            await FileOperator.deleteFileOrDirAsync(this.downloadDir);
             this.emit(DownloadEvent.CANCELED, this.descriptor);
         }
         return flag;
@@ -215,6 +223,10 @@ export default class DownloadTask extends EventEmitter {
         return flag;
     }
 
+    /**
+     * CAS: 保证状态不被重复设置, 返回的boolean值用来保证各种事件只发送一次, 并且状态转换逻辑只执行一次
+     * @param nextStatus
+     */
     public compareAndSwapStatus(nextStatus: DownloadStatus) {
         if (this.getStatus() === nextStatus) {
             return false;
@@ -225,56 +237,6 @@ export default class DownloadTask extends EventEmitter {
 
     public getStatus() {
         return this.status;
-    }
-
-
-    /**
-     * 根据分配的任务数据与现存的chunk文件大小，创建worker对象
-     * @param descriptor
-     */
-    private async dispatchChunkWorkersForNewTask(descriptor: FileDescriptor): Promise<DownloadWorker[]> {
-        const {downloadDir} = this;
-
-        const {taskId, computed} = descriptor;
-        // @ts-ignore
-        const {chunksInfo} = computed;
-        // 清空重置workers
-        const downloadWorkers: DownloadWorker[] = [];
-        for (let i = 0; i < chunksInfo.length; i++) {
-            const chunkInfo = chunksInfo[i];
-            const {index, length, from, to} = chunkInfo;
-            if (this.existsBlockFile(index)) {
-                await this.deleteBlockFile(index);
-            }
-            const worker: DownloadWorker = new DownloadWorker(
-                taskId,
-                downloadDir,
-                chunkInfo.length,
-                descriptor.contentType,
-                index,
-                from,
-                to,
-                descriptor.downloadUrl
-            ).on(DownloadEvent.FINISHED, async (chunkIndex) => {
-                await this.finish();
-            }).on(DownloadEvent.ERROR, (chunkIndex, errorEnum) => {
-                this.workers.forEach((w, idx) => {
-                    if (idx === chunkIndex) {
-                        return;
-                    }
-                    Logger.debug(`[DownloadTask]OnError: invoker = ${chunkIndex}; call = ${idx}`);
-                    w.stop();
-                });
-                this.error(chunkIndex, errorEnum);
-            }).on(DownloadEvent.CANCELED, () => {
-
-            }).on(DownloadEvent.STARTED, () => {
-
-            });
-
-            downloadWorkers.push(worker);
-        }
-        return downloadWorkers;
     }
 
     /**
@@ -338,6 +300,55 @@ export default class DownloadTask extends EventEmitter {
     }
 
     /**
+     * 根据分配的任务数据与现存的chunk文件大小，创建worker对象
+     * @param descriptor
+     */
+    private async dispatchChunkWorkersForNewTask(descriptor: FileDescriptor): Promise<DownloadWorker[]> {
+        const {downloadDir} = this;
+
+        const {taskId, computed} = descriptor;
+        // @ts-ignore
+        const {chunksInfo} = computed;
+        // 清空重置workers
+        const downloadWorkers: DownloadWorker[] = [];
+        for (let i = 0; i < chunksInfo.length; i++) {
+            const chunkInfo = chunksInfo[i];
+            const {index, length, from, to} = chunkInfo;
+            if (this.existsBlockFile(index)) {
+                await this.deleteBlockFile(index);
+            }
+            const worker: DownloadWorker = new DownloadWorker(
+                taskId,
+                downloadDir,
+                chunkInfo.length,
+                descriptor.contentType,
+                index,
+                from,
+                to,
+                descriptor.downloadUrl
+            ).on(DownloadEvent.FINISHED, async (chunkIndex) => {
+                await this.finish();
+            }).on(DownloadEvent.ERROR, (chunkIndex, errorEnum) => {
+                this.workers.forEach((w, idx) => {
+                    if (idx === chunkIndex) {
+                        return;
+                    }
+                    Logger.debug(`[DownloadTask]OnError: invoker = ${chunkIndex}; call = ${idx}`);
+                    w.stop();
+                });
+                this.error(chunkIndex, errorEnum);
+            }).on(DownloadEvent.CANCELED, () => {
+
+            }).on(DownloadEvent.STARTED, () => {
+
+            });
+            downloadWorkers.push(worker);
+        }
+        return downloadWorkers;
+    }
+
+
+    /**
      * 旧任务
      * @param descriptor
      */
@@ -351,7 +362,7 @@ export default class DownloadTask extends EventEmitter {
             const {index, length, from, to} = chunkInfo;
             let newFrom = from;
             if (await this.existsBlockFile(index)) {
-                newFrom = from + await this.getBlockFileSize(index) + 1;
+                newFrom = from + await this.getBlockFileSize(index);
             }
             Logger.debug(`< [chunk-${index}]info: from=${from}, to=${to}, length=${length}`);
             Logger.debug(`Worker: newFrom=${newFrom}, to=${to}, remaining=${to - newFrom + 1}>`);
@@ -370,17 +381,7 @@ export default class DownloadTask extends EventEmitter {
                 worker.compareAndSwapStatus(DownloadStatus.FINISHED);
             } else {
                 worker.on(DownloadEvent.FINISHED, async (chunkIndex) => {
-                    if (this.isAllWorkersFinished()) {
-                        if (this.progressNumber !== undefined) {
-                            clearInterval(this.progressNumber);
-                            this.progressNumber = undefined;
-                        }
-                        // 合并块文件
-                        await this.mergeAllBlocks();
-                        // 删除info文件
-                        await this.deleteInfoFile();
-                        this.emit(DownloadEvent.FINISHED, this.descriptor);
-                    }
+                    await this.finish();
                 }).on(DownloadEvent.ERROR, (chunkIndex, errorEnum) => {
                     this.workers.forEach((w, idx) => {
                         if (idx === chunkIndex) {
@@ -446,10 +447,6 @@ export default class DownloadTask extends EventEmitter {
         return await FileOperator.existsAsync(this.getChunkFile(index).path, false);
     }
 
-    public async createBlockFile(index: number) {
-        await FileOperator.createNewFile(this.getChunkFile(index).path);
-    }
-
     public async deleteBlockFile(index: number) {
         return await FileOperator.deleteFileOrDirAsync(this.getChunkFile(index).path);
 
@@ -464,15 +461,13 @@ export default class DownloadTask extends EventEmitter {
         const {descriptor} = this;
         const outputFilePath = FileOperator.pathJoin(descriptor.storageDir, descriptor.filename);
         Logger.debug(`[DownloadTask]outputFilePath:`, outputFilePath);
-        if (await FileOperator.existsAsync(outputFilePath, false)) {
-            await FileOperator.deleteFileOrDirAsync(outputFilePath);
-        }
-        // FileUtils.createNewFile(outputFilePath);
+        const writeStream: FileOperator.WriteStream = FileOperator.openWriteStream(outputFilePath);
         for (let i = 0; i < descriptor.chunks; i++) {
-            await this.merge(outputFilePath, i);
+            await this.merge(writeStream, i);
         }
+        writeStream.close();
         await FileOperator.deleteFileOrDirAsync(this.downloadDir);
-        Logger.debug(`[DownloadTask]merged:`, outputFilePath);
+        Logger.debug(`[DownloadTask]merged: {filename: ${outputFilePath}, length = ${await FileOperator.fileLengthAsync(outputFilePath)}, expect_length = ${descriptor.contentLength}`);
     }
 
     public async deleteInfoFile() {
@@ -480,30 +475,28 @@ export default class DownloadTask extends EventEmitter {
     }
 
 
-    private async merge(destFilePath: string, i: number) {
+    private async merge(writeStream: FileOperator.WriteStream, i: number) {
         const chunkFile = this.getChunkFile(i);
         Logger.debug(chunkFile.path);
         return new Promise((resolve, reject) => {
             const readStream = FileOperator.openReadStream(chunkFile.path);
             readStream.on('data', (chunk) => {
-                FileOperator.appendFile(destFilePath, chunk).catch((err) => {
+                FileOperator.doWriteStream(writeStream, chunk).catch((err) => {
+                    Logger.error(err);
                     readStream.close();
+                    writeStream.close();
                     this.error(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.APPEND_TARGET_FILE_ERROR));
                 });
             });
-            readStream.on('end', () => {
+            readStream.on('end', async () => {
                 readStream.close();
-                FileOperator.deleteFileOrDirAsync(chunkFile.path).then(() => {
-                    resolve();
-                });
+                resolve();
+                await FileOperator.deleteFileOrDirAsync(chunkFile.path);
             });
             readStream.on('error', (e) => {
-                // Logger.debug('err:', chunkFile.path, e);
-                readStream.close();
+                Logger.debug(e);
+                writeStream.close();
                 this.error(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.READ_CHUNK_FILE_ERROR));
-                // FileOperator.deleteFileOrDirAsync(chunkFile.path).then(() => {
-                //     resolve();
-                // });
             });
         });
     }

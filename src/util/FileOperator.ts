@@ -8,11 +8,17 @@ import * as path from 'path';
 
 
 export function createNewFile(filePath: string) {
-    openWriteStream(filePath).close();
+    fs.createWriteStream(filePath).close();
 }
 
 export function openReadStream(filePath: string): fs.ReadStream {
     return fs.createReadStream(filePath);
+}
+
+export function openAppendStream(filePath: string): fs.WriteStream {
+    return fs.createWriteStream(filePath, {
+        flags: 'a'
+    });
 }
 
 export function openWriteStream(filePath: string): fs.WriteStream {
@@ -20,6 +26,17 @@ export function openWriteStream(filePath: string): fs.WriteStream {
 }
 
 
+export async function doWriteStream(ws: fs.WriteStream, chunk: any) {
+    return new Promise((resolve, reject) => {
+        ws.write(chunk, (err) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve();
+            }
+        });
+    });
+}
 
 // 递归创建目录 异步方法
 export async function mkdirsIfNonExistsAsync(dirPath: string): Promise<boolean> {
@@ -233,3 +250,9 @@ export async function listSubFilesAsync(dirPath: string): Promise<string[]> {
 //         fs.closeSync()
 //     });
 // }
+
+type WriteStream = fs.WriteStream
+
+export {
+    WriteStream
+};
