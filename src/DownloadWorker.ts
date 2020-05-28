@@ -3,6 +3,7 @@
  * Author: SiFan Wei - weisifan
  * Date: 2020-05-18 17:35
  */
+import * as fs from 'fs';
 import * as url from 'url';
 import * as http from 'http';
 import * as https from 'https';
@@ -39,6 +40,7 @@ export default class DownloadWorker extends EventEmitter {
         this.to = to;
         this.downloadUrl = downloadUrl;
         this.chunkFilePath = FileOperator.pathJoin(downloadDir, DownloadWorker.getChunkFilename(index));
+        this.progressBytes = contentLength - (to - from + 1);
     }
 
 
@@ -61,6 +63,9 @@ export default class DownloadWorker extends EventEmitter {
      * 开始或继续任务
      */
     public async resume() {
+        if (await this.isFinished()) {
+            return false;
+        }
         return this.compareAndSwapStatus(DownloadStatus.DOWNLOADING);
     }
 
@@ -88,7 +93,7 @@ export default class DownloadWorker extends EventEmitter {
     }
 
 
-    private async finish() {
+    public async finish() {
         const flag = this.compareAndSwapStatus(DownloadStatus.FINISHED);
         if (flag) {
             this.emit(DownloadEvent.FINISHED, this.index);
@@ -238,7 +243,7 @@ export default class DownloadWorker extends EventEmitter {
         const {chunkFilePath} = this;
         if (resp.statusCode >= 200 && resp.statusCode < 300) {
             // 创建块文件输出流
-            const writeStream = FileOperator.openWriteStream(chunkFilePath);
+            // const writeStream = FileOperator.openWriteStream(chunkFilePath);
             resp.on('data', (dataBytes: any) => {
                 if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOP ||
                     this.getStatus() === DownloadStatus.CANCEL) {
@@ -250,11 +255,9 @@ export default class DownloadWorker extends EventEmitter {
                  * 前者高频调用fs.appendFile会抛出异常: EMFILE: too many open files
                  * 后者在写入过程中会导致整个nodejs进程假死, 界面不可操作
                  */
-                writeStream.write(dataBytes, (err: any) => {
-                    // Logger.debug('this.getProgressBytes() =', this.getProgressBytes());
-                    // if (this.getProgressBytes() > 1000000) {
-                    //     err = new Error();
-                    // }
+                // fs.appendFileSync(chunkFilePath, dataBytes);
+
+                fs.appendFile(chunkFilePath, dataBytes, (err: NodeJS.ErrnoException) => {
                     if (!err) {
                         // 正常
                         this.updateProgressBytes(dataBytes.length);
@@ -269,9 +272,29 @@ export default class DownloadWorker extends EventEmitter {
                         });
                     }
                 });
+
+                // writeStream.write(dataBytes, (err: any) => {
+                //     // Logger.debug('this.getProgressBytes() =', this.getProgressBytes());
+                //     // if (this.getProgressBytes() > 1000000) {
+                //     //     err = new Error();
+                //     // }
+                //     if (!err) {
+                //         // 正常
+                //         this.updateProgressBytes(dataBytes.length);
+                //     } else {
+                //         this.error().then((flag) => {
+                //             if (!flag) {
+                //                 return;
+                //             }
+                //             Logger.error(err);
+                //             this.emit(DownloadEvent.ERROR, this.index,
+                //                 ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR));
+                //         });
+                //     }
+                // });
             });
             resp.on('end', () => {
-                writeStream.close();
+                // writeStream.close();
                 // 因为错误而停止下载任务时, 不应该发送finish事件
                 if (this.getStatus() !== DownloadStatus.ERROR) {
                     Logger.debug('-> response end');

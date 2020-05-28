@@ -5,24 +5,43 @@
  */
 
 import DownloadManager from './src/DownloadManager';
-import {DownloadEvent} from './src/Config';
+import {DownloadEvent, FileDescriptor} from './src/Config';
 import Logger from './src/util/Logger';
+import * as crypto from 'crypto';
 
 async function test() {
+    const manager = new DownloadManager()
+        .configConfigDir('temp_info')
+        .configProgressTicktockMillis(500)
+        .configFileInfoDescriptor(async (descriptor: FileDescriptor) => {
 
-    const manager = new DownloadManager();
+
+            descriptor.contentType = 'application/zip';
+            descriptor.contentLength = (35623715);
+            const md5 = crypto.createHash('md5');
+            descriptor.md5 = md5.update(descriptor.downloadUrl).digest('hex');
+            return descriptor;
+        });
+    await manager.loadInfoFiles();
+    // const task = await manager.newTask(
+    //     'https://a24.gdl.netease.com/2003011457_12162019_GG_NetVios_190535.zip',
+    //     'temp_repo',
+    //     'GG_NetVios.zip',
+    //     5
+    // );
 
     const task = await manager.newTask(
-        'https://a24.gdl.netease.com/2003011457_12162019_GG_NetVios_190535.zip',
+        'https://a24.gdl.netease.com/1926111511_electronuts.zip',
         'temp_repo',
-        'GG_NetVios.zip',
-        20
+        'electronuts.zip',
+        5
     );
-    Logger.debug(`[VUE]taskId: ${task.getTaskId()}`);
+
+    Logger.debug(`[User]taskId: ${task.getTaskId()}`);
     task.on(DownloadEvent.STARTED, () => {
         Logger.debug('+++DownloadEvent.STARTED:');
     }).on(DownloadEvent.PROGRESS, (progress) => {
-        Logger.debug('+++DownloadEvent.PROGRESS:', progress);
+        Logger.debug('+++DownloadEvent.PROGRESS:', Math.round((progress.progress / progress.contentLength) * 10000) / 100 + '%', progress);
     }).on(DownloadEvent.FINISHED, (descriptor) => {
         Logger.debug('+++DownloadEvent.FINISHED:', descriptor);
     }).on(DownloadEvent.ERROR, (errorMessage) => {

@@ -211,13 +211,25 @@ export function pathJoin(...paths: string[]) {
 export async function listSubFilesAsync(dirPath: string): Promise<string[]> {
     return await new Promise((resolve, reject) => {
         fs.readdir(dirPath, null, (readErr: NodeJS.ErrnoException | null, children: string[]) => {
+            console.log(readErr, children);
             if (readErr) {
                 reject(readErr);
                 return;
             }
-            return children.sort((childA, childB) => {
+            resolve(children.sort((childA, childB) => {
                 return childA.localeCompare(childB);
-            });
+            }));
         });
     });
 }
+
+// export async function appendFile(filePath: string, chunk: any) {
+//
+//     return new Promise((resolve, reject) => {
+//         fs.appendFile()
+//         fs.open(filePath, 'a+', () => {
+//
+//         });
+//         fs.closeSync()
+//     });
+// }

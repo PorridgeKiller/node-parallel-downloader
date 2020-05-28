@@ -14,12 +14,16 @@ import * as FileOperator from './util/FileOperator';
 
 export default class DownloadManager {
 
-    private baseDir: string = 'temp_info';
+    private configDir: string = '';
     private taskIdGenerator?: TaskIdGenerator = defaultTaskIdGenerator;
     private fileInfoDescriptor: FileInformationDescriptor = defaultFileInformationDescriptor;
     private tasks: Map<string, DownloadTask> = new Map<string, DownloadTask>();
     private progressTicktockMillis: number = 200;
 
+    public configConfigDir(configDir: string) {
+        this.configDir = configDir;
+        return this;
+    }
 
     public configTaskIdGenerator(taskIdGenerator: TaskIdGenerator) {
         this.taskIdGenerator = taskIdGenerator;
@@ -36,6 +40,10 @@ export default class DownloadManager {
         return this;
     }
 
+    public deleteInfoFile(taskId: string) {
+
+    }
+
     /**
      * 创建新的下载任务
      * @param downloadUrl
@@ -46,11 +54,21 @@ export default class DownloadManager {
     public async newTask(
         downloadUrl: string, storageDir: string, filename: string, chunks: number
     ): Promise<DownloadTask> {
-        const {fileInfoDescriptor, progressTicktockMillis} = this;
-
+        const {fileInfoDescriptor, progressTicktockMillis, taskIdGenerator} = this;
+        let taskId: string = await taskIdGenerator(downloadUrl, storageDir, filename);
+        let task = this.getTask(taskId);
+        if (!!task) {
+            return task;
+        }
         // @ts-ignore
-        let descriptor = await this.assembly(downloadUrl, storageDir, filename, chunks);
-        const task = new DownloadTask(descriptor, progressTicktockMillis, fileInfoDescriptor);
+        let descriptor = await this.assembly(taskId, downloadUrl, storageDir, filename, chunks);
+        task = new DownloadTask(descriptor, progressTicktockMillis, fileInfoDescriptor, false)
+            .on(DownloadEvent.FINISHED, (finishedTaskDescriptor) => {
+                this.tasks.delete(finishedTaskDescriptor.taskId);
+                Logger.debug(`[DownloadManager]DownloadEvent.FINISHED: this.tasks.size = ${this.tasks.size}`);
+            }).on(DownloadEvent.CANCELED, (canceledTaskDescriptor) => {
+                this.tasks.delete(canceledTaskDescriptor.taskId);
+            });
         // task加入任务池
         this.tasks.set(descriptor.taskId, task);
         return task;
@@ -63,7 +81,7 @@ export default class DownloadManager {
             Logger.error(`taskId = ${taskId} not found`);
             return;
         }
-        task.start();
+        await task.start();
     }
 
     /**
@@ -90,34 +108,33 @@ export default class DownloadManager {
      * 加载已有的配置文件
      */
     public async loadInfoFiles() {
-        const infoFiles = await FileOperator.listSubFilesAsync(this.baseDir);
+        const {configDir} = this;
+        const infoFiles = await FileOperator.listSubFilesAsync(configDir).catch((e) => {
+            Logger.error(e);
+            return [];
+        });
         infoFiles.filter((infoFile) => {
             return infoFile.endsWith(Config.INFO_FILE_EXTENSION);
         });
+        const {fileInfoDescriptor, progressTicktockMillis} = this;
 
         for (let i = 0; i < infoFiles.length; i++) {
             const infoFile = infoFiles[i];
-            const json = await FileOperator.readFileAsync(infoFile);
+            const json = await FileOperator.readFileAsync(FileOperator.pathJoin(configDir, infoFile));
             const descriptor = JSON.parse(json);
             const task = await DownloadTask.fromFileDescriptor(descriptor, this.progressTicktockMillis);
             this.tasks.set(task.getTaskId(), task);
+            Logger.debug(`[DownloadManager]loadInfoFiles: taskId = ${task.getTaskId()}`);
         }
     }
 
 
-    private async assembly(downloadUrl: string, storageDir: string, filename: string, chunks: number): Promise<FileDescriptor> {
-        const {baseDir, taskIdGenerator} = this;
-        let taskId: string;
-        if (taskIdGenerator) {
-            taskId = await taskIdGenerator(downloadUrl, storageDir, filename);
-        } else {
-            // filename的MD5
-            taskId = '';
-        }
+    private async assembly(taskId: string, downloadUrl: string, storageDir: string, filename: string, chunks: number): Promise<FileDescriptor> {
+        const {configDir, taskIdGenerator} = this;
         // @ts-ignore
         const fileDescriptor: FileDescriptor = {
             taskId,
-            configDir: baseDir,
+            configDir,
             downloadUrl,
             storageDir,
             filename,
