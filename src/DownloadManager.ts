@@ -71,7 +71,7 @@ export default class DownloadManager {
         task = new DownloadTask(descriptor, progressTicktockMillis, fileInfoDescriptor, false)
             .on(DownloadEvent.FINISHED, (finishedTaskDescriptor) => {
                 this.tasks.delete(finishedTaskDescriptor.taskId);
-                Logger.debug(`[DownloadManager]DownloadEvent.FINISHED: this.tasks.size = ${this.tasks.size}`);
+                Logger.debug(`[DownManager]DownloadEvent.FINISHED: this.tasks.size = ${this.tasks.size}`);
             }).on(DownloadEvent.CANCELED, (canceledTaskDescriptor) => {
                 this.tasks.delete(canceledTaskDescriptor.taskId);
             });
@@ -129,13 +129,13 @@ export default class DownloadManager {
         for (let i = 0; i < infoFiles.length; i++) {
             try {
                 const infoFile = infoFiles[i];
-                Logger.debug(`infoFile: ${infoFile}`);
                 const json = await FileOperator.readFileAsync(infoFile);
-                Logger.debug(`ConfigFile-${infoFile}: ${json}`);
+                const printJson = json.toString().replace('\n', '');
+                Logger.debug(`[DownManager]ConfigFile: ${infoFile}: ${printJson})`);
                 const descriptor = JSON.parse(json);
                 const task = await DownloadTask.fromFileDescriptor(descriptor, progressTicktockMillis);
                 this.tasks.set(task.getTaskId(), task);
-                Logger.debug(`[DownloadManager]loadInfoFiles: taskId = ${task.getTaskId()}`);
+                Logger.debug(`[DownManager]loadInfoFiles: taskId = ${task.getTaskId()}`);
             } catch (e) {
                 Logger.warn(e);
             }
@@ -161,7 +161,7 @@ export default class DownloadManager {
             chunks,
             createTime: new Date(),
         };
-        Logger.debug(`[DownloadManager]FileDescriptor:`, fileDescriptor);
+        Logger.debug(`[DownManager]FileDescriptor:`, fileDescriptor);
         return fileDescriptor;
     }
 }

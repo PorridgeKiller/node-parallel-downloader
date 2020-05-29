@@ -11,7 +11,6 @@ import * as crypto from 'crypto';
 
 async function test() {
 
-
     // const writeStream = fs.createWriteStream('temp', {
     //     flags: 'a'
     // });
@@ -23,10 +22,9 @@ async function test() {
 
     const manager = new DownloadManager()
         .configConfigDir('temp_info')
+        .configMaxWorkerCount(5)
         .configProgressTicktockMillis(500);
     // manager.configFileInfoDescriptor(async (descriptor: FileDescriptor) => {
-    //
-    //
     //     descriptor.contentType = 'application/zip';
     //     descriptor.contentLength = (35623715);
     //     const md5 = crypto.createHash('md5');
@@ -38,7 +36,7 @@ async function test() {
         'https://a24.gdl.netease.com/2003011457_12162019_GG_NetVios_190535.zip',
         'temp_repo',
         'GG_NetVios.zip',
-        50
+        10
     );
 
     // const task = await manager.newTask(
@@ -47,22 +45,36 @@ async function test() {
     //     '1926111511.zip',
     //     5
     // );
-
-    Logger.debug(`[User]taskId: ${task.getTaskId()}`);
     task.on(DownloadEvent.STARTED, () => {
         Logger.debug('+++DownloadEvent.STARTED:');
+        Logger.debug('status0:', task.getStatus());
     }).on(DownloadEvent.PROGRESS, (progress) => {
-        Logger.debug('+++DownloadEvent.PROGRESS:', Math.round((progress.progress / progress.contentLength) * 10000) / 100 + '%', progress);
+        const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
+        const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
+        const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
+
+        Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`);
+        Logger.debug('status-progress:', task.getStatus());
     }).on(DownloadEvent.FINISHED, (descriptor) => {
         Logger.debug('+++DownloadEvent.FINISHED:', descriptor);
+        Logger.debug('status3:', task.getStatus());
     }).on(DownloadEvent.ERROR, (errorMessage) => {
         Logger.debug('+++DownloadEvent.ERROR:', errorMessage);
+        Logger.debug('status4:', task.getStatus());
     });
     manager.start(task.getTaskId());
-    // setTimeout(() => {
-    //     task.cancel();
-    //     Logger.debug('status:', task.getStatus());
-    // }, 9000);
+    setTimeout(async () => {
+        for (let i = 0; i < 50; i++) {
+            await task.stop();
+            Logger.debug('status1:', task.getStatus());
+            task.start();
+            Logger.debug('status2:', task.getStatus());
+        }
+        // setTimeout(() => {
+        //     task.cancel();
+        //     Logger.debug('status-cancel:', task.getStatus());
+        // }, 1000);
+    }, 20000);
 }
 
 test();

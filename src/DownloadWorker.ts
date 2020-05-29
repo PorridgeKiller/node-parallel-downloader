@@ -9,19 +9,13 @@ import * as https from 'https';
 import * as FileOperator from './util/FileOperator';
 import Logger from './util/Logger';
 import {EventEmitter} from 'events';
-import {
-    DownloadStatusHolder,
-    Config,
-    DownloadErrorEnum,
-    DownloadEvent,
-    DownloadStatus,
-    ErrorMessage
-} from './Config';
+import {Config, DownloadErrorEnum, DownloadEvent, DownloadStatus, DownloadStatusHolder, ErrorMessage} from './Config';
 
 
 export default class DownloadWorker extends DownloadStatusHolder {
     private downloadDir: string;
     private taskId: string;
+    private simpleTaskId: string;
     private index: number;
     private from: number = 0;
     private to: number = 0;
@@ -30,20 +24,22 @@ export default class DownloadWorker extends DownloadStatusHolder {
     private contentLength: number;
     private contentType: string;
 
-    private progressBytes: number = 0;
+    private progress: number = 0;
     private req?: http.ClientRequest;
 
 
     constructor(taskId: string, downloadDir: string, contentLength: number, contentType: string, index: number,
-                from: number, to: number, downloadUrl: string) {
+                from: number, to: number, progress: number, downloadUrl: string) {
         super();
         this.downloadDir = downloadDir;
         this.taskId = taskId;
+        this.simpleTaskId = this.getSimpleTaskId();
         this.contentLength = contentLength;
         this.contentType = contentType;
         this.index = index;
         this.from = from;
         this.to = to;
+        this.progress = progress;
         this.downloadUrl = downloadUrl;
         this.chunkFilePath = FileOperator.pathJoin(downloadDir, DownloadWorker.getChunkFilename(index));
         this.init();
@@ -54,14 +50,19 @@ export default class DownloadWorker extends DownloadStatusHolder {
         return 'chunk_' + index + Config.BLOCK_FILENAME_EXTENSION;
     }
 
+
+
+    public getSimpleTaskId() {
+        return this.taskId.substring(28);
+    }
+
     /**
      * 设置初始化
      */
     private init() {
         const flag = this.compareAndSwapStatus(DownloadStatus.INIT);
         if (flag) {
-            const {contentLength, from, to} = this;
-            this.progressBytes = contentLength - (to - from + 1);
+            // todo
         }
         return flag;
     }
@@ -82,7 +83,6 @@ export default class DownloadWorker extends DownloadStatusHolder {
         const flag = await this.compareAndSwapStatus(DownloadStatus.DOWNLOADING);
         if (flag) {
             this.doDownloadRequest(this.downloadUrl);
-            Logger.debug(`[DownloadWorker]Started: ${this.index}`);
             emit && this.emit(DownloadEvent.STARTED, this.index);
         }
         return flag;
@@ -143,23 +143,22 @@ export default class DownloadWorker extends DownloadStatusHolder {
     }
 
 
-    public getProgressBytes() {
-        return this.progressBytes;
+    public getProgress() {
+        return this.progress;
     }
 
-    public updateProgressBytes(newChunkSize: number) {
-        this.progressBytes += newChunkSize;
+    public updateProgress(newProgress: number) {
+        this.progress += newProgress;
+    }
+
+    public resetProgress(progress: number) {
+        this.progress = progress;
     }
 
 
     private doDownloadRequest(urlPath: string) {
-        const {taskId, from, to, contentLength, contentType} = this;
+        const {taskId, from, to, progress, contentLength, contentType} = this;
         const parsedUrl = url.parse(urlPath);
-        // 发送的数据序列化
-        // const getData = querystring.stringify({
-        //     taskId,
-        // });
-        // Logger.debug('getData: ' + getData);
         const opts: http.RequestOptions = {
             method: 'GET',
             hostname: parsedUrl.hostname,
@@ -171,10 +170,10 @@ export default class DownloadWorker extends DownloadStatusHolder {
                 'Content-Type': 'application/json;charset=UTF-8',
                 'Accept': contentType,
                 'Connection': 'keep-alive',
-                'Range': `bytes=${from}-${to}`
+                'Range': `bytes=${from + progress}-${to}`
             },
         };
-        Logger.debug('Range:' + `bytes=${from}-${to}`);
+        this.printLog(`Started: Range: bytes=${from + progress}-${to}; progress=${this.progress}`);
         // 创建request
         let request;
         if ('http:' === parsedUrl.protocol) {
@@ -205,25 +204,25 @@ export default class DownloadWorker extends DownloadStatusHolder {
         // 不知道为何，实际时长是两倍，15000ms = 实际30s
         req.setTimeout(30000 / 2);
         req.on('connect', () => {
-            Logger.info('-> request connect');
+            this.printLog('-> response connect');
         });
         // @ts-ignore
         req.on('response', (resp: http.ClientResponse) => {
             this.handleResponse(resp);
         });
         req.on('timeout', () => {
-            Logger.info('-> request timeout');
+            this.printLog('-> response timeout');
             this.error(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT));
         });
         req.on('error', (err) => {
-            Logger.info('-> request error', err);
+            this.printLog('-> response error', err);
             this.error(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.SERVER_UNAVAILABLE));
         });
         req.on('close', () => {
-            Logger.info('-> request closed');
+            this.printLog('-> response closed');
         });
         req.on('abort', () => {
-            Logger.info('-> request abort');
+            this.printLog('-> response abort');
         });
         req.end();
     }
@@ -261,7 +260,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
                     // }
                     if (!err) {
                         // 正常
-                        this.updateProgressBytes(dataBytes.length);
+                        this.updateProgress(dataBytes.length);
                     } else {
                         this.error(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR));
                     }
@@ -270,12 +269,12 @@ export default class DownloadWorker extends DownloadStatusHolder {
             resp.on('end', async () => {
                 this.req = undefined;
                 appendStream.close();
-                // 因为错误而停止下载任务时, 不应该发送finish事件
-                if (this.getStatus() !== DownloadStatus.ERROR) {
-                    Logger.debug('-> response end');
-                    await this.finish(true);
+                this.printLog(`-> response end during ${this.getStatus()}`);
+                // 因为错误而停止下载任务或者被暂停时, 不应该发送finish事件
+                if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOP) {
+                    // todo
                 } else {
-                    Logger.debug('-> response end with error');
+                    await this.finish(true);
                 }
             });
         } else {
@@ -290,4 +289,8 @@ export default class DownloadWorker extends DownloadStatusHolder {
         return this.getStatus() === DownloadStatus.DOWNLOADING;
     }
 
+
+    private printLog(...args: any[]) {
+        Logger.debug(`[DownWorker-${this.simpleTaskId}-${this.index}]`, ...args);
+    }
 }

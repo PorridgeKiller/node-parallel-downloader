@@ -58,10 +58,10 @@ export enum DownloadErrorEnum {
     REQUEST_TIMEOUT = '1000@request timeout',
     UNKNOWN_PROTOCOL = '1001@unknown protocol',
     SERVER_UNAVAILABLE = '1002@server unavailable',
-    CREATE_DOWNLOAD_DIR_FAILED = '1003@下载目录创建失败',
-    READ_CHUNK_FILE_ERROR = '1004@读取块文件出错',
-    WRITE_CHUNK_FILE_ERROR = '1005@写入块文件出错',
-    APPEND_TARGET_FILE_ERROR = '1006@追加目标文件出错',
+    CREATE_DOWNLOAD_DIR_FAILED = '1003@failed to create download directory',
+    READ_CHUNK_FILE_ERROR = '1004@failed to read chunk file',
+    WRITE_CHUNK_FILE_ERROR = '1005@failed to write into chunk file',
+    APPEND_TARGET_FILE_ERROR = '1006@failed to append target file',
 }
 
 
@@ -116,6 +116,12 @@ export {
     defaultFileInformationDescriptor, defaultTaskIdGenerator
 }
 
+
+/**
+ * 下载状态管理器
+ * DownloadTask extends DownloadStatusHolder
+ * DownloadWorker extends DownloadStatusHolder
+ */
 export class DownloadStatusHolder extends EventEmitter {
     private status!: DownloadStatus;
 
@@ -169,6 +175,7 @@ export class DownloadStatusHolder extends EventEmitter {
             }
         } else if (nextStatus === DownloadStatus.FINISHED) {
             if (prevStatus === DownloadStatus.ERROR ||
+                // prevStatus === DownloadStatus.STOP ||
                 prevStatus === DownloadStatus.CANCEL) {
                 return false;
             }
