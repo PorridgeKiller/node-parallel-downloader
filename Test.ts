@@ -61,7 +61,8 @@ async function test() {
     manager.start(task.getTaskId());
     // setTimeout(() => {
     //     task.cancel();
-    // }, 1500);
+    //     Logger.debug('status:', task.getStatus());
+    // }, 9000);
 }
 
 test();

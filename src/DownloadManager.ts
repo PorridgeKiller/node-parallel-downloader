@@ -115,22 +115,30 @@ export default class DownloadManager {
      */
     public async loadInfoFiles() {
         const {configDir} = this;
-        const infoFiles = await FileOperator.listSubFilesAsync(configDir).catch((e) => {
+        if (!await FileOperator.existsAsync(configDir, true)) {
+            return;
+        }
+        let infoFiles = await FileOperator.listSubFilesAsync(configDir).catch((e) => {
             Logger.error(e);
             return [];
         });
-        infoFiles.filter((infoFile) => {
+        infoFiles = infoFiles.filter((infoFile) => {
             return infoFile.endsWith(Config.INFO_FILE_EXTENSION);
         });
-        const {fileInfoDescriptor, progressTicktockMillis} = this;
-
+        const {progressTicktockMillis} = this;
         for (let i = 0; i < infoFiles.length; i++) {
-            const infoFile = infoFiles[i];
-            const json = await FileOperator.readFileAsync(FileOperator.pathJoin(configDir, infoFile));
-            const descriptor = JSON.parse(json);
-            const task = await DownloadTask.fromFileDescriptor(descriptor, this.progressTicktockMillis);
-            this.tasks.set(task.getTaskId(), task);
-            Logger.debug(`[DownloadManager]loadInfoFiles: taskId = ${task.getTaskId()}`);
+            try {
+                const infoFile = infoFiles[i];
+                Logger.debug(`infoFile: ${infoFile}`);
+                const json = await FileOperator.readFileAsync(infoFile);
+                Logger.debug(`ConfigFile-${infoFile}: ${json}`);
+                const descriptor = JSON.parse(json);
+                const task = await DownloadTask.fromFileDescriptor(descriptor, progressTicktockMillis);
+                this.tasks.set(task.getTaskId(), task);
+                Logger.debug(`[DownloadManager]loadInfoFiles: taskId = ${task.getTaskId()}`);
+            } catch (e) {
+                Logger.warn(e);
+            }
         }
     }
 

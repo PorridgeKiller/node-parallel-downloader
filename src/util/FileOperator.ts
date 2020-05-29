@@ -92,6 +92,9 @@ export function deleteFileOrDirAsync(fileOrDirPath: string): Promise<any> {
     }
     return new Promise((resolve, reject) => {
         fs.stat(fileOrDirPath, (err, stat) => {
+            if (!stat) {
+                resolve();
+            }
             if (stat.isDirectory()) {
                 deleteDirectory(fileOrDirPath).then(resolve).catch(reject);
             } else {
@@ -109,17 +112,20 @@ export function deleteDirectory(dirPath: string) {
         fs.access(dirPath, (err1) => {
             if (err1) {
                 reject(err1);
+                return;
             }
             fs.readdir(dirPath, (err2, files) => {
                 if (err2) {
                     reject(err2);
+                    return;
                 }
                 Promise.all(files.map((file) => {
                     return deleteFile(dirPath, file)
                 })).then(() => {
                     fs.rmdir(dirPath, (err3) => {
                         if (err3) {
-                            reject(err3)
+                            reject(err3);
+                            return;
                         }
                         resolve();
                     })
@@ -132,14 +138,20 @@ export function deleteDirectory(dirPath: string) {
 export function deleteFile(dirPath: string, file: string) {
     return new Promise((resolve, reject) => {
         let filePath = path.join(dirPath, file);
-        fs.stat(filePath, (err1, stats) => {
+        fs.stat(filePath, (err1, stat) => {
             if (err1) {
                 reject(err1);
+                return;
             }
-            if (stats.isFile()) {
+            if (!stat) {
+                resolve();
+                return;
+            }
+            if (stat.isFile()) {
                 fs.unlink(filePath, (err2) => {
                     if (err2) {
                         reject(err2);
+                        return;
                     }
                     resolve();
                 })
@@ -212,6 +224,23 @@ export async function fileLengthAsync(filePath: string): Promise<number> {
 }
 
 
+export async function isFile(filePath: string): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+        fs.stat(filePath, (err, stat) => {
+            if (err) {
+                reject();
+                return;
+            }
+            if (!stat) {
+                reject(new Error('stat == null'));
+                return;
+            }
+            resolve(stat.isFile());
+        });
+    });
+}
+
+
 /**
  * 拼接字符串数组为路径
  * @param paths
@@ -227,14 +256,21 @@ export function pathJoin(...paths: string[]) {
 
 export async function listSubFilesAsync(dirPath: string): Promise<string[]> {
     return await new Promise((resolve, reject) => {
-        fs.readdir(dirPath, null, (readErr: NodeJS.ErrnoException | null, children: string[]) => {
-            console.log(readErr, children);
+        fs.readdir(dirPath, null, async (readErr: NodeJS.ErrnoException | null, children: string[]) => {
             if (readErr) {
                 reject(readErr);
                 return;
             }
-            resolve(children.sort((childA, childB) => {
-                return childA.localeCompare(childB);
+            const files = [];
+            for (let i = 0; i < children.length; i++) {
+                const filename = children[i];
+                const fullpath = pathJoin(dirPath, filename);
+                if (await isFile(fullpath)) {
+                    files.push(fullpath);
+                }
+            }
+            resolve(files.sort((fileA, fileB) => {
+                return fileA.localeCompare(fileB);
             }));
         });
     });
