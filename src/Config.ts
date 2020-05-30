@@ -6,7 +6,6 @@
 
 import * as crypto from 'crypto';
 import {EventEmitter} from 'events';
-import Logger from "./util/Logger";
 
 export const Config = {
     INFO_FILE_EXTENSION: '.info.json',
@@ -21,6 +20,7 @@ export enum DownloadStatus {
     DOWNLOADING = 'DOWNLOADING',
     CANCEL = 'CANCEL',
     ERROR = 'ERROR',
+    MERGE = 'MERGE',
 }
 
 
@@ -31,26 +31,30 @@ export enum DownloadEvent {
     FINISHED = 'FINISHED',
     CANCELED = 'CANCELED',
     PROGRESS = 'PROGRESS',
+    MERGE = 'MERGE',
 }
 
 
 export class ErrorMessage {
-    private code: string;
-    private message: string;
+    public code: string;
+    public message: string;
+    public taskId: string;
+    public error: NodeJS.ErrnoException;
 
-    constructor(code: string, message: string) {
+    constructor(code: string, message: string, error: NodeJS.ErrnoException) {
         this.code = code;
         this.message = message;
+        this.error = error;
     }
 
-    public static fromCustomer(code: string, message: string) {
-        return new ErrorMessage(code, message);
+    public static fromCustomer(code: string, message: string, error: NodeJS.ErrnoException) {
+        return new ErrorMessage(code, message, error);
     }
 
-    public static fromErrorEnum(errEnum: DownloadErrorEnum) {
+    public static fromErrorEnum(errEnum: DownloadErrorEnum, error: NodeJS.ErrnoException) {
         const str = errEnum.toString();
         const strs = str.split('@');
-        return new ErrorMessage(strs[0], strs[1]);
+        return new ErrorMessage(strs[0], strs[1], error);
     }
 }
 
@@ -144,7 +148,7 @@ export class DownloadStatusHolder extends EventEmitter {
      * @param nextStatus 要设置的状态
      * @param reentrant 是否可重入, 默认不可重入
      */
-    public compareAndSwapStatus(nextStatus: DownloadStatus, reentrant?: boolean): boolean {
+    protected compareAndSwapStatus(nextStatus: DownloadStatus, reentrant?: boolean): boolean {
         const prevStatus = this.getStatus();
         // 第一次判断: 前后状态是否一样, 一样就直接返回false表示状态不可重复设置
         if (prevStatus === nextStatus) {
@@ -163,14 +167,21 @@ export class DownloadStatusHolder extends EventEmitter {
             return false;
         } else if (nextStatus === DownloadStatus.DOWNLOADING) {
             if (prevStatus === DownloadStatus.FINISHED ||
+                prevStatus === DownloadStatus.MERGE ||
                 prevStatus === DownloadStatus.CANCEL) {
                 return false;
             }
         } else if (nextStatus === DownloadStatus.STOP) {
             if (prevStatus === DownloadStatus.INIT ||
+                prevStatus === DownloadStatus.MERGE ||
                 prevStatus === DownloadStatus.FINISHED ||
                 prevStatus === DownloadStatus.CANCEL ||
                 prevStatus === DownloadStatus.ERROR) {
+                return false;
+            }
+        } else if (nextStatus === DownloadStatus.MERGE) {
+            if (prevStatus === DownloadStatus.FINISHED ||
+                prevStatus === DownloadStatus.CANCEL) {
                 return false;
             }
         } else if (nextStatus === DownloadStatus.FINISHED) {
@@ -182,7 +193,8 @@ export class DownloadStatusHolder extends EventEmitter {
         } else if (nextStatus === DownloadStatus.CANCEL) {
             // 任何状态都可以转为DownloadStatus.CANCEL
         } else if (nextStatus === DownloadStatus.ERROR) {
-            if (prevStatus === DownloadStatus.FINISHED ||
+            if (prevStatus === DownloadStatus.STOP ||
+                prevStatus === DownloadStatus.FINISHED ||
                 prevStatus === DownloadStatus.CANCEL) {
                 return false;
             }

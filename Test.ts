@@ -5,9 +5,9 @@
  */
 
 import DownloadManager from './src/DownloadManager';
-import {DownloadEvent, FileDescriptor} from './src/Config';
+import {DownloadEvent, DownloadStatus} from './src/Config';
 import Logger from './src/util/Logger';
-import * as crypto from 'crypto';
+import DownloadTask from "./src/DownloadTask";
 
 async function test() {
 
@@ -23,7 +23,7 @@ async function test() {
     const manager = new DownloadManager()
         .configConfigDir('temp_info')
         .configMaxWorkerCount(5)
-        .configProgressTicktockMillis(500);
+        .configProgressTicktockMillis(800);
     // manager.configFileInfoDescriptor(async (descriptor: FileDescriptor) => {
     //     descriptor.contentType = 'application/zip';
     //     descriptor.contentLength = (35623715);
@@ -45,10 +45,10 @@ async function test() {
     //     '1926111511.zip',
     //     5
     // );
-    task.on(DownloadEvent.STARTED, () => {
+    task.on(DownloadEvent.STARTED, (descriptor) => {
         Logger.debug('+++DownloadEvent.STARTED:');
         Logger.debug('status0:', task.getStatus());
-    }).on(DownloadEvent.PROGRESS, (progress) => {
+    }).on(DownloadEvent.PROGRESS, (descriptor, progress) => {
         const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
         const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
         const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
@@ -58,23 +58,37 @@ async function test() {
     }).on(DownloadEvent.FINISHED, (descriptor) => {
         Logger.debug('+++DownloadEvent.FINISHED:', descriptor);
         Logger.debug('status3:', task.getStatus());
-    }).on(DownloadEvent.ERROR, (errorMessage) => {
-        Logger.debug('+++DownloadEvent.ERROR:', errorMessage);
-        Logger.debug('status4:', task.getStatus());
+    }).on(DownloadEvent.ERROR, (descriptor, errorMessage) => {
+        Logger.error('+++DownloadEvent.ERROR:', descriptor, errorMessage);
+        Logger.error('status4:', task.getStatus());
     });
     manager.start(task.getTaskId());
-    setTimeout(async () => {
-        for (let i = 0; i < 50; i++) {
-            await task.stop();
-            Logger.debug('status1:', task.getStatus());
-            task.start();
-            Logger.debug('status2:', task.getStatus());
+    task.start();
+
+    let count = 0;
+    let flag = true;
+    while (flag) {
+        if (task.getStatus() === DownloadStatus.FINISHED) {
+            break;
         }
-        // setTimeout(() => {
-        //     task.cancel();
-        //     Logger.debug('status-cancel:', task.getStatus());
-        // }, 1000);
-    }, 20000);
+        await loop(task, count++);
+    }
+    Logger.debug('任务结束');
+}
+
+
+async function loop(task: DownloadTask, count: number) {
+    return new Promise(async (resolve, reject) => {
+        setTimeout(async () => {
+            if (count % 2 === 0) {
+                await task.stop();
+            } else {
+                await task.start();
+            }
+            Logger.debug(`loop-${count}`, task.getStatus());
+            resolve();
+        }, 2000);
+    });
 }
 
 test();

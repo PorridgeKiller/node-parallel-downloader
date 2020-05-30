@@ -42,7 +42,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
         this.progress = progress;
         this.downloadUrl = downloadUrl;
         this.chunkFilePath = FileOperator.pathJoin(downloadDir, DownloadWorker.getChunkFilename(index));
-        this.init();
+        this.tryInit();
     }
 
 
@@ -59,7 +59,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
     /**
      * 设置初始化
      */
-    private init() {
+    private tryInit() {
         const flag = this.compareAndSwapStatus(DownloadStatus.INIT);
         if (flag) {
             // todo
@@ -71,15 +71,15 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 状态设置为DownloadStatus.DOWNLOADING
      * 块任务开始
      */
-    public async start(emit: boolean) {
-        return await this.resume(emit);
+    public async tryStart(emit: boolean) {
+        return await this.tryResume(emit);
     }
 
     /**
      * 状态设置为DownloadStatus.DOWNLOADING
      * 块任务恢复
      */
-    public async resume(emit: boolean) {
+    public async tryResume(emit: boolean) {
         const flag = await this.compareAndSwapStatus(DownloadStatus.DOWNLOADING);
         if (flag) {
             this.doDownloadRequest(this.downloadUrl);
@@ -92,7 +92,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 状态设置为DownloadStatus.STOP
      * 块任务暂停
      */
-    public async stop(emit: boolean) {
+    public async tryStop(emit: boolean) {
         const flag = this.compareAndSwapStatus(DownloadStatus.STOP);
         if (flag) {
             this.abortRequest();
@@ -105,7 +105,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 状态设置为DownloadStatus.CANCEL
      * 块任务取消
      */
-    public async cancel(emit: boolean) {
+    public async tryCancel(emit: boolean) {
         const flag = this.compareAndSwapStatus(DownloadStatus.CANCEL);
         if (flag) {
             this.abortRequest();
@@ -121,10 +121,11 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 状态设置为DownloadStatus.ERROR
      * 块任务出错
      */
-    public async error(emit: boolean, error: ErrorMessage) {
+    public async tryError(emit: boolean, error: ErrorMessage) {
         const flag = await this.compareAndSwapStatus(DownloadStatus.ERROR);
         if (flag) {
             this.abortRequest();
+            error.taskId = this.taskId;
             emit && this.emit(DownloadEvent.ERROR, this.index, error);
         }
         return flag;
@@ -134,10 +135,18 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 状态设置为DownloadStatus.FINISHED
      * 块任务完成
      */
-    public async finish(emit: boolean) {
+    public async tryFinish(emit: boolean) {
         const flag = this.compareAndSwapStatus(DownloadStatus.FINISHED);
         if (flag) {
             emit && this.emit(DownloadEvent.FINISHED, this.index);
+        }
+        return flag;
+    }
+
+    public async tryMerge(emit: boolean) {
+        const flag = this.compareAndSwapStatus(DownloadStatus.MERGE);
+        if (flag) {
+            emit && this.emit(DownloadEvent.MERGE, this.index);
         }
         return flag;
     }
@@ -189,10 +198,6 @@ export default class DownloadWorker extends DownloadStatusHolder {
         this.sendRequest(request);
     }
 
-    public isFinished() {
-        return this.getStatus() === DownloadStatus.FINISHED;
-    }
-
 
     /**
      * 发送request请求，并监听一系列事件
@@ -202,27 +207,22 @@ export default class DownloadWorker extends DownloadStatusHolder {
         this.emit(DownloadEvent.STARTED, this.index);
         this.req = req;
         // 不知道为何，实际时长是两倍，15000ms = 实际30s
-        req.setTimeout(30000 / 2);
-        req.on('connect', () => {
-            this.printLog('-> response connect');
-        });
+        req.setTimeout(30000);
         // @ts-ignore
         req.on('response', (resp: http.ClientResponse) => {
             this.handleResponse(resp);
         });
-        req.on('timeout', () => {
-            this.printLog('-> response timeout');
-            this.error(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT));
+        req.on('timeout', (err) => {
+            this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT, err));
         });
         req.on('error', (err) => {
-            this.printLog('-> response error', err);
-            this.error(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.SERVER_UNAVAILABLE));
+            this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.SERVER_UNAVAILABLE, err));
         });
         req.on('close', () => {
-            this.printLog('-> response closed');
+            // this.printLog('-> response closed');
         });
         req.on('abort', () => {
-            this.printLog('-> response abort');
+            // this.printLog('-> response abort');
         });
         req.end();
     }
@@ -254,15 +254,15 @@ export default class DownloadWorker extends DownloadStatusHolder {
                  * 后者在写入过程中会导致整个nodejs进程假死, 界面不可操作
                  */
                 appendStream.write(dataBytes, (err: any) => {
-                    // Logger.debug('this.getProgressBytes() =', this.getProgressBytes());
-                    // if (this.getProgressBytes() > 1000000) {
+                    // Logger.debug('this.getProgress() =', this.getProgress());
+                    // if (this.getProgress() > 1000000) {
                     //     err = new Error();
                     // }
                     if (!err) {
                         // 正常
                         this.updateProgress(dataBytes.length);
                     } else {
-                        this.error(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR));
+                        this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR, err));
                     }
                 });
             });
@@ -270,16 +270,20 @@ export default class DownloadWorker extends DownloadStatusHolder {
                 this.req = undefined;
                 appendStream.close();
                 this.printLog(`-> response end during ${this.getStatus()}`);
-                // 因为错误而停止下载任务或者被暂停时, 不应该发送finish事件
                 if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOP) {
-                    // todo
+                    // 因为错误而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
                 } else {
-                    await this.finish(true);
+                    await this.tryMerge(true);
                 }
             });
         } else {
-            await this.error(true, ErrorMessage.fromCustomer(resp.statusCode, resp.statusMessage));
+            await this.tryError(true, ErrorMessage.fromCustomer(resp.statusCode, resp.statusMessage,
+                new Error(`httpStatusCode = ${resp.statusCode}`)));
         }
+    }
+
+    public canMerge() {
+        return this.getStatus() === DownloadStatus.MERGE;
     }
 
     /**

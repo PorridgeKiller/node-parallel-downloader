@@ -36,52 +36,67 @@ export default class DownloadTask extends DownloadStatusHolder {
 
     private downloadDir: string;
 
-    private isOldTask: boolean;
+    private isFromConfigFile: boolean;
 
+    /**
+     * 上一次ticktock时的进度，用来计算速度
+     */
     private prevProgress: number = 0;
 
 
     constructor(fileDescriptor: FileDescriptor,
                 progressTicktockMillis: number,
                 fileInfoDescriptor: FileInformationDescriptor,
-                isOldTask: boolean) {
+                isFromConfigFile: boolean) {
         super();
         this.progressTicktockMillis = progressTicktockMillis;
         this.fileInfoDescriptor = fileInfoDescriptor;
         // @ts-ignore
         this.descriptor = fileDescriptor;
-        this.isOldTask = isOldTask;
-        this.init();
+        this.isFromConfigFile = isFromConfigFile;
+        this.tryInit();
     }
 
 
-    public static async fromFileDescriptor(descriptor: FileDescriptor, progressTicktockMillis: number): Promise<DownloadTask> {
-        const task = new DownloadTask(descriptor, progressTicktockMillis, null, true);
-        return task;
+    public getTaskId() {
+        return this.descriptor.taskId;
     }
 
+    private getSimpleTaskId() {
+        return this.getTaskId().substring(28);
+    }
 
-    protected init() {
+    /**
+     * 尝试状态设置为DownloadStatus.INIT
+     */
+    private tryInit() {
         const flag = this.compareAndSwapStatus(DownloadStatus.INIT);
         if (flag) {
             this.downloadDir = this.getDownloadDir();
             this.simpleTaskId = this.getSimpleTaskId();
+            this.prevProgress = 0;
         }
         return flag;
     }
 
+    /**
+     * 尝试状态设置为DownloadStatus.DOWNLOADING并启动下载任务
+     */
     public async start() {
         const prevStatus = this.getStatus();
         const flag = this.compareAndSwapStatus(DownloadStatus.DOWNLOADING);
         if (flag) {
-            const {descriptor, fileInfoDescriptor, isOldTask} = this;
+            const {descriptor, isFromConfigFile} = this;
             // 创建下载目录，用来存放下载块临时文件
-            if (!await FileOperator.mkdirsIfNonExistsAsync(this.downloadDir)) {
-                Logger.warn(`[DownloadTask-${this.simpleTaskId}]DownloadDir: ${this.downloadDir} create failed`);
-                this.emit(DownloadEvent.ERROR, ErrorMessage.fromErrorEnum(DownloadErrorEnum.CREATE_DOWNLOAD_DIR_FAILED));
+            if (!await FileOperator.mkdirsIfNonExistsAsync(this.downloadDir).catch((err) => {
+                // Logger.warn(`[DownloadTask-${this.simpleTaskId}]DownloadDir: ${this.downloadDir} create failed`);
+                this.emit(DownloadEvent.ERROR, ErrorMessage.fromErrorEnum(DownloadErrorEnum.CREATE_DOWNLOAD_DIR_FAILED, err));
+                return false;
+            })) {
                 return;
             }
-            const skipDescribeAndDivide = isOldTask || prevStatus === DownloadStatus.STOP || prevStatus === DownloadStatus.ERROR;
+
+            const skipDescribeAndDivide = isFromConfigFile || prevStatus === DownloadStatus.STOP || prevStatus === DownloadStatus.ERROR;
             const shouldAppendFile = skipDescribeAndDivide;
             // 新的任务所走的流程
             this.describeAndDivide(descriptor, skipDescribeAndDivide).then(async (d) => {
@@ -89,7 +104,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                 // 1. 创建download workers, 并加入任务池
                 this.workers = await this.dispatchForWorkers(d, shouldAppendFile);
                 // 2. 开始所有的workers
-                this.resume(true).then(() => {
+                this.tryResume(true).then(() => {
                     this.emit(DownloadEvent.STARTED, d);
                 }).catch((e) => {
                     Logger.error(e);
@@ -99,9 +114,11 @@ export default class DownloadTask extends DownloadStatusHolder {
         return flag;
     }
 
-
-    public async resume(reentrant?: boolean) {
-        if (await this.finish()) {
+    /**
+     * 尝试状态设置为DownloadStatus.DOWNLOADING，并启动workers
+     */
+    private async tryResume(reentrant?: boolean) {
+        if (await this.tryMerge()) {
             // 开始前再判断一下是不是所有块已经下载完, 如果已经下载完毕，直接合并，就不用再启动worker
             return true;
         }
@@ -111,7 +128,7 @@ export default class DownloadTask extends DownloadStatusHolder {
             if (workers) {
                 for (let i = 0; i < workers.length; i++) {
                     const worker: DownloadWorker = workers[i];
-                    await worker.start(true);
+                    await worker.tryStart(true);
                 }
                 this.startProgressTicktockLooper();
             }
@@ -121,7 +138,7 @@ export default class DownloadTask extends DownloadStatusHolder {
 
 
     /**
-     * 暂停任务
+     * 尝试状态设置为DownloadStatus.STOP，并暂停任务
      */
     public async stop() {
         const flag = this.compareAndSwapStatus(DownloadStatus.STOP);
@@ -131,7 +148,7 @@ export default class DownloadTask extends DownloadStatusHolder {
             if (workers) {
                 for (let i = 0; i < workers.length; i++) {
                     const w = workers[i];
-                    await w.stop(false);
+                    await w.tryStop(false);
                 }
             }
             this.emit(DownloadEvent.STOP, descriptor);
@@ -140,7 +157,7 @@ export default class DownloadTask extends DownloadStatusHolder {
     }
 
     /**
-     * 取消任务
+     * 尝试状态设置为DownloadStatus.CANCEL，并取消任务
      */
     public async cancel() {
         const flag = this.compareAndSwapStatus(DownloadStatus.CANCEL);
@@ -151,7 +168,7 @@ export default class DownloadTask extends DownloadStatusHolder {
             if (workers) {
                 for (let i = 0; i < workers.length; i++) {
                     const worker = workers[i];
-                    await worker.cancel(false);
+                    await worker.tryCancel(false);
                 }
             }
             await FileOperator.deleteFileOrDirAsync(this.downloadDir);
@@ -165,38 +182,64 @@ export default class DownloadTask extends DownloadStatusHolder {
     }
 
 
-    public async error(chunkIndex: number, errorMessage: ErrorMessage) {
+    /**
+     * 设置状态为DOWNLOAD.ERROR
+     */
+    private async tryError(chunkIndex: number, error: ErrorMessage) {
         const flag = this.compareAndSwapStatus(DownloadStatus.ERROR);
         if (flag) {
+            error.taskId = this.getTaskId();
             this.stopProgressTicktockLooper();
             const {workers, descriptor} = this;
             if (workers) {
                 for (let i = 0; i < workers.length; i++) {
                     const w = workers[i];
                     if (i === chunkIndex) {
-                        return;
+                        continue;
                     }
-                    // Logger.debug(`[DownloadTask]OnError: invoker = ${chunkIndex}; call = ${i}`);
-                    await w.error(false, errorMessage);
+                    await w.tryError(false, error);
                 }
             }
-            this.emit(DownloadEvent.ERROR, descriptor, errorMessage);
+            this.emit(DownloadEvent.ERROR, descriptor, error);
         }
         return flag;
     }
 
 
-    private async finish() {
-        if (this.isAllWorkersFinished()) {
-            const flag = this.compareAndSwapStatus(DownloadStatus.FINISHED);
+    /**
+     * 设置状态为DOWNLOAD.FINISH
+     */
+    private async tryFinish() {
+        const flag = this.compareAndSwapStatus(DownloadStatus.FINISHED);
+        if (flag) {
+            const {workers} = this;
+            if (workers) {
+                for (let i = 0; i < workers.length; i++) {
+                    const worker = workers[i];
+                    await worker.tryFinish(false);
+                }
+            }
+            // 删除info文件
+            await this.deleteInfoFile();
+            this.prevProgress = this.descriptor.contentLength;
+            this.emit(DownloadEvent.FINISHED, this.descriptor);
+        }
+        return flag;
+    }
+
+    /**
+     * 设置状态为DOWNLOAD.MERGE
+     */
+    private async tryMerge() {
+        if (this.canAllWorkersMerge()) {
+            const flag = this.compareAndSwapStatus(DownloadStatus.MERGE);
             if (flag) {
                 this.stopProgressTicktockLooper();
                 // 合并块文件
-                await this.mergeAllBlocks();
-                // 删除info文件
-                await this.deleteInfoFile();
-                this.emit(DownloadEvent.FINISHED, this.descriptor);
-                this.prevProgress = 0;
+                await this.mergeChunks();
+                this.emit(DownloadEvent.MERGE, this.descriptor);
+                // 合并完成，状态设置为FINISH
+                await this.tryFinish();
             }
             return flag;
         }
@@ -205,24 +248,8 @@ export default class DownloadTask extends DownloadStatusHolder {
 
 
     /**
-     * 计算当前下载进度
+     * 开始下载进度轮询并发送事件
      */
-    public computeCurrentProcess(): any {
-        const {progressTicktockMillis, prevProgress} = this;
-        let progress = 0;
-        this.workers.forEach((worker) => {
-            progress += worker.getProgress();
-        });
-        const speed = Math.round((progress - prevProgress) / (progressTicktockMillis / 1000));
-        this.prevProgress = progress;
-        return {
-            contentLength: this.descriptor.contentLength,
-            progress,
-            ticktock: progressTicktockMillis,
-            speed,
-        };
-    }
-
     private stopProgressTicktockLooper() {
         const {progressNumber} = this;
         if (progressNumber) {
@@ -231,22 +258,39 @@ export default class DownloadTask extends DownloadStatusHolder {
         }
     }
 
+    /**
+     * 停止下载进度轮询
+     */
     private startProgressTicktockLooper() {
         this.stopProgressTicktockLooper();
         const {progressTicktockMillis} = this;
         this.progressNumber = setInterval(() => {
-            this.emit(DownloadEvent.PROGRESS, this.computeCurrentProcess());
+            this.emit(DownloadEvent.PROGRESS, this.descriptor, this.computeCurrentProcess());
         }, progressTicktockMillis);
     }
 
-
-    public getTaskId() {
-        return this.descriptor.taskId;
+    /**
+     * 计算当前下载进度
+     */
+    private computeCurrentProcess(): any {
+        const {progressTicktockMillis, prevProgress} = this;
+        // bytes
+        let progress = 0;
+        this.workers.forEach((worker) => {
+            progress += worker.getProgress();
+        });
+        // bytes/s
+        const speed = Math.round((progress - prevProgress) / (progressTicktockMillis / 1000));
+        this.prevProgress = progress;
+        return {
+            contentLength: this.descriptor.contentLength,
+            progress,
+            // ms
+            ticktock: progressTicktockMillis,
+            speed,
+        };
     }
 
-    public getSimpleTaskId() {
-        return this.getTaskId().substring(28);
-    }
 
     /**
      * 新任务
@@ -307,6 +351,7 @@ export default class DownloadTask extends DownloadStatusHolder {
         const {taskId, downloadUrl, computed} = descriptor;
         const {chunksInfo} = computed;
         const workers = this.workers || [];
+        this.prevProgress = 0;
         for (let i = 0; i < chunksInfo.length; i++) {
             const chunkInfo = chunksInfo[i];
             const {index, length, from, to} = chunkInfo;
@@ -335,8 +380,8 @@ export default class DownloadTask extends DownloadStatusHolder {
 
                 }).on(DownloadEvent.STOP, (chunkIndex) => {
 
-                }).on(DownloadEvent.FINISHED, async (chunkIndex) => {
-                    await this.finish();
+                }).on(DownloadEvent.MERGE, async (chunkIndex) => {
+                    await this.tryMerge();
                 }).on(DownloadEvent.ERROR, (chunkIndex, errorEnum) => {
                     this.workers.forEach((w, idx) => {
                         if (idx === chunkIndex) {
@@ -344,9 +389,9 @@ export default class DownloadTask extends DownloadStatusHolder {
                         }
                         // Logger.debug(`[DownloadTask-${this.getSimpleTaskId()}]OnError: invoker = ${chunkIndex}; call = ${idx}`);
                         // this.printLog();
-                        w.stop(false);
+                        w.tryStop(false);
                     });
-                    this.error(chunkIndex, errorEnum);
+                    this.tryError(chunkIndex, errorEnum);
                 }).on(DownloadEvent.CANCELED, (chunkIndex) => {
 
                 });
@@ -356,7 +401,7 @@ export default class DownloadTask extends DownloadStatusHolder {
             }
             if (progress >= length) {
                 // 表明这一块已经下载完毕，直接标记完成
-                worker.compareAndSwapStatus(DownloadStatus.FINISHED);
+                await worker.tryMerge(false);
             }
         }
         return workers;
@@ -370,13 +415,13 @@ export default class DownloadTask extends DownloadStatusHolder {
     }
 
 
-    private isAllWorkersFinished() {
+    private canAllWorkersMerge() {
         const {workers} = this;
         if (!workers) {
             return false;
         }
         for (let i = 0; i < workers.length; i++) {
-            if (!workers[i].isFinished()) {
+            if (!workers[i].canMerge()) {
                 return false;
             }
         }
@@ -404,28 +449,31 @@ export default class DownloadTask extends DownloadStatusHolder {
         };
     }
 
-    public async existsBlockFile(index: number) {
+    private async existsBlockFile(index: number) {
         return await FileOperator.existsAsync(this.getChunkFile(index).path, false);
     }
 
-    public async deleteBlockFile(index: number) {
+    private async deleteBlockFile(index: number) {
         return await FileOperator.deleteFileOrDirAsync(this.getChunkFile(index).path);
 
 
     }
 
-    public async getBlockFileSize(index: number) {
+    private async getBlockFileSize(index: number) {
         return await FileOperator.fileLengthAsync(this.getChunkFile(index).path);
     }
 
 
-    public async mergeAllBlocks() {
+    /**
+     * 合并所有块文件
+     */
+    private async mergeChunks() {
         const {descriptor} = this;
         const outputFilePath = this.getOutputFilePath();
         this.printLog(`mergeAllBlocks into: ${outputFilePath}`);
         const writeStream: FileOperator.WriteStream = FileOperator.openWriteStream(outputFilePath);
         for (let i = 0; i < descriptor.chunks; i++) {
-            if (!await this.merge(writeStream, i)) {
+            if (!await this.mergeChunk(writeStream, i)) {
                 break;
             }
         }
@@ -434,12 +482,17 @@ export default class DownloadTask extends DownloadStatusHolder {
         this.printLog(`merged: {filename=${outputFilePath}, length=${await FileOperator.fileLengthAsync(outputFilePath)}, expect_length=${descriptor.contentLength}`);
     }
 
-    public async deleteInfoFile() {
+    private async deleteInfoFile() {
         await FileOperator.deleteFileOrDirAsync(this.getInfoFilePath());
     }
 
 
-    private async merge(writeStream: FileOperator.WriteStream, i: number) {
+    /**
+     * 合并一个块文件
+     * @param writeStream
+     * @param i
+     */
+    private async mergeChunk(writeStream: FileOperator.WriteStream, i: number) {
         const chunkFile = this.getChunkFile(i);
         this.printLog(`merging: ${chunkFile.path}`);
         return new Promise((resolve, reject) => {
@@ -456,40 +509,24 @@ export default class DownloadTask extends DownloadStatusHolder {
                     return;
                 }
                 FileOperator.doWriteStream(writeStream, chunk).catch((err) => {
-                    Logger.error(err);
                     readStream.close();
                     writeStream.close();
-                    this.error(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.APPEND_TARGET_FILE_ERROR));
+                    this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.APPEND_TARGET_FILE_ERROR, err));
                 });
             });
             readStream.on('end', async () => {
                 readStream.close();
-                await FileOperator.deleteFileOrDirAsync(chunkFile.path).catch((e) => {
-                    Logger.error(e);
-                });
+                // await FileOperator.deleteFileOrDirAsync(chunkFile.path).catch((e) => {
+                //     Logger.error(e);
+                // });
                 resolve(true);
             });
-            readStream.on('error', (e) => {
-                Logger.error(e);
+            readStream.on('error', (err) => {
                 writeStream.close();
-                this.error(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.READ_CHUNK_FILE_ERROR));
+                this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.READ_CHUNK_FILE_ERROR, err));
             });
         });
     }
-
-
-    // private canReadFile() {
-    //     const status = this.getStatus();
-    //     if (status === DownloadStatus.INIT ||
-    //         status === DownloadStatus.STOP ||
-    //         status === DownloadStatus.FINISHED ||
-    //         status === DownloadStatus.CANCEL ||
-    //         status === DownloadStatus.ERROR) {
-    //         return false;
-    //     }
-    //     return true;
-    // }
-
 
     private canReadWriteFile() {
         const status = this.getStatus();

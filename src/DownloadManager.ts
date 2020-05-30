@@ -125,7 +125,7 @@ export default class DownloadManager {
         infoFiles = infoFiles.filter((infoFile) => {
             return infoFile.endsWith(Config.INFO_FILE_EXTENSION);
         });
-        const {progressTicktockMillis} = this;
+        const {fileInfoDescriptor, progressTicktockMillis} = this;
         for (let i = 0; i < infoFiles.length; i++) {
             try {
                 const infoFile = infoFiles[i];
@@ -133,7 +133,7 @@ export default class DownloadManager {
                 const printJson = json.toString().replace('\n', '');
                 Logger.debug(`[DownManager]ConfigFile: ${infoFile}: ${printJson})`);
                 const descriptor = JSON.parse(json);
-                const task = await DownloadTask.fromFileDescriptor(descriptor, progressTicktockMillis);
+                const task = new DownloadTask(descriptor, progressTicktockMillis, fileInfoDescriptor, true);
                 this.tasks.set(task.getTaskId(), task);
                 Logger.debug(`[DownManager]loadInfoFiles: taskId = ${task.getTaskId()}`);
             } catch (e) {
