@@ -67,7 +67,8 @@ export default class DownloadTask extends DownloadStatusHolder {
     }
 
     private getSimpleTaskId() {
-        return this.getTaskId().substring(28);
+        // 只保留4位
+        return this.getTaskId().substring(this.getTaskId().length - 4);
     }
 
     /**
@@ -92,8 +93,8 @@ export default class DownloadTask extends DownloadStatusHolder {
         if (flag) {
             const {descriptor, isFromConfigFile} = this;
             // 创建下载目录，用来存放下载块临时文件
-            const created = await FileOperator.mkdirsIfNonExistsAsync(this.downloadDir).catch((err) => {
-                this.emit(DownloadEvent.ERROR, ErrorMessage.fromErrorEnum(DownloadErrorEnum.CREATE_DOWNLOAD_DIR_ERROR, err));
+            const created = await FileOperator.mkdirsIfNonExistsAsync(this.downloadDir).catch(async (err) => {
+                await this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.CREATE_DOWNLOAD_DIR_ERROR, err));
                 return false;
             });
             if (!created) {
@@ -111,9 +112,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                 // 1. 创建download workers, 并加入任务池
                 this.workers = await this.dispatchForWorkers(d, shouldAppendFile);
                 // 2. 开始所有的workers
-                this.tryResume(true).then(() => {
-                    this.emit(DownloadEvent.STARTED, d);
-                }).catch((e) => {
+                this.tryResume(true).catch((e) => {
                     Logger.error(e);
                 });
             });
@@ -139,6 +138,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                 }
                 this.startProgressTicktockLooper();
             }
+            this.emit(DownloadEvent.STARTED, this.descriptor);
         }
         return flag;
     }
