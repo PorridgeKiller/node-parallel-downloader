@@ -3,9 +3,8 @@
  * Author: SiFan Wei - weisifan
  * Date: 2020-05-18 17:36
  */
-import Logger from './util/Logger';
 import DownloadTask from './DownloadTask';
-import {Config, DownloadErrorEnum, DownloadEvent, ErrorMessage,
+import {Logger, Config, DownloadErrorEnum, DownloadEvent, ErrorMessage,
     TaskIdGenerator, FileInformationDescriptor, ChunkInfo, FileDescriptor,
     defaultFileInformationDescriptor, defaultTaskIdGenerator} from './Config';
 import * as FileOperator from './util/FileOperator';
@@ -113,10 +112,10 @@ export default class DownloadManager {
     /**
      * 加载已有的配置文件
      */
-    public async loadInfoFiles() {
+    public async loadInfoFiles(): Promise<DownloadManager> {
         const {configDir} = this;
         if (!await FileOperator.existsAsync(configDir, true)) {
-            return;
+            return this;
         }
         let infoFiles = await FileOperator.listSubFilesAsync(configDir).catch((e) => {
             Logger.error(e);
@@ -137,9 +136,11 @@ export default class DownloadManager {
                 this.tasks.set(task.getTaskId(), task);
                 Logger.debug(`[DownManager]loadInfoFiles: taskId = ${task.getTaskId()}`);
             } catch (e) {
+                // 加载一个文件出错就跳过
                 Logger.warn(e);
             }
         }
+        return this;
     }
 
 

@@ -4,6 +4,7 @@
  * Date: 2020-05-20 15:46
  */
 import {
+    Logger,
     ChunkInfo,
     Config,
     DownloadErrorEnum,
@@ -16,7 +17,6 @@ import {
 import DownloadStatusHolder from './DownloadStatusHolder';
 import DownloadWorker from './DownloadWorker';
 import {EventEmitter} from 'events';
-import Logger from './util/Logger';
 import * as FileOperator from './util/FileOperator';
 
 export default class DownloadTask extends DownloadStatusHolder {
@@ -86,18 +86,18 @@ export default class DownloadTask extends DownloadStatusHolder {
     /**
      * 尝试状态设置为DownloadStatus.DOWNLOADING并启动下载任务
      */
-    public async start() {
+    public async start(): Promise<boolean> {
         const prevStatus = this.getStatus();
         const flag = this.compareAndSwapStatus(DownloadStatus.DOWNLOADING);
         if (flag) {
             const {descriptor, isFromConfigFile} = this;
             // 创建下载目录，用来存放下载块临时文件
-            if (!await FileOperator.mkdirsIfNonExistsAsync(this.downloadDir).catch((err) => {
-                // Logger.warn(`[DownloadTask-${this.simpleTaskId}]DownloadDir: ${this.downloadDir} create failed`);
+            const created = await FileOperator.mkdirsIfNonExistsAsync(this.downloadDir).catch((err) => {
                 this.emit(DownloadEvent.ERROR, ErrorMessage.fromErrorEnum(DownloadErrorEnum.CREATE_DOWNLOAD_DIR_ERROR, err));
                 return false;
-            })) {
-                return;
+            });
+            if (!created) {
+                return false;
             }
 
             const skipDescribeAndDivide = isFromConfigFile || prevStatus === DownloadStatus.STOP || prevStatus === DownloadStatus.ERROR;
@@ -147,7 +147,7 @@ export default class DownloadTask extends DownloadStatusHolder {
     /**
      * 尝试状态设置为DownloadStatus.STOP，并暂停任务
      */
-    public async stop() {
+    public async stop(): Promise<boolean> {
         const flag = this.compareAndSwapStatus(DownloadStatus.STOP);
         if (flag) {
             this.stopProgressTicktockLooper();
@@ -166,7 +166,7 @@ export default class DownloadTask extends DownloadStatusHolder {
     /**
      * 尝试状态设置为DownloadStatus.CANCEL，并取消任务
      */
-    public async cancel() {
+    public async cancel(): Promise<boolean> {
         const flag = this.compareAndSwapStatus(DownloadStatus.CANCEL);
         if (flag) {
             this.stopProgressTicktockLooper();

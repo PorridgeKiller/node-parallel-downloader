@@ -5,10 +5,120 @@
  */
 
 import * as crypto from 'crypto';
-import Logger from './util/Logger';
+import LoggerInterface from './util/LoggerInterface';
 import DownloadManager from './DownloadManager';
 import DownloadTask from './DownloadTask';
 import DownloadWorker from './DownloadWorker';
+
+
+class ConsoleLogger implements LoggerInterface {
+
+    debug(message?: any, ...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        console.debug('[debug]', message, ...args);
+    };
+
+    info(message?: any, ...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        console.info('[info]', message, ...args);
+    };
+
+    warn(message?: any, ...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        console.warn('[warn]', message, ...args);
+    };
+
+    error(message?: any, ...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        console.error('[debug]', message, ...args);
+    };
+
+    printStackTrace(): void {
+        if (this.disabled()) {
+            return;
+        }
+    }
+
+    assert(condition: boolean, ...errorArgs: any[]): void {
+
+    }
+
+    disabled() {
+        return false;
+    }
+
+    setDisabled(disabled: boolean): void {
+    }
+
+    setProxy(logger: LoggerInterface) {
+
+    }
+}
+
+
+
+class DownloadLogger implements LoggerInterface {
+    private _disabled = false;
+    public logger: LoggerInterface = new ConsoleLogger();
+
+    debug(message?: any, ...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        this.logger && this.logger.debug(message, ...args);
+    };
+
+    info(message?: any, ...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        this.logger && this.logger.info(message, ...args);
+    };
+
+    warn(message?: any, ...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        this.logger && this.logger.warn(message, ...args);
+    };
+
+    error(message?: any, ...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        this.logger && this.logger.error(message, ...args);
+    };
+
+    printStackTrace(): void {
+    }
+
+    assert(condition: boolean, ...errorArgs: any[]): void {
+    }
+
+    disabled() {
+        return this._disabled;
+    }
+
+    setDisabled(disabled: boolean): void {
+        this._disabled = disabled;
+    }
+
+    setProxy(logger: LoggerInterface) {
+        this.logger = logger;
+    }
+}
+
+const Logger: LoggerInterface = new DownloadLogger();
+
+
 
 export const Config = {
     INFO_FILE_EXTENSION: '.info.json',
@@ -134,6 +244,8 @@ export {
 
 export {
     Logger,
+    ConsoleLogger,
+    LoggerInterface,
     DownloadManager,
     DownloadTask,
     DownloadWorker,

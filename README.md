@@ -1,5 +1,5 @@
 ## node-parallel-downloader
-基于nodejs实现的多线程断点续传的多任务下载器
+基于nodejs实现的多线程断点续传的多任务下载器，断点续传基于Http-Header中Range字段，格式[Range=bytes=0-789]
 
 #### Features
 - 全异步IO操作. 包括所有目录/文件读写操作, 高性能保证
@@ -13,7 +13,14 @@
 ##### 1.1. npm
 
 ```
-npm install --save parallel-downloader
+npm install --save node-parallel-downloader
+```
+##### 测试
+```typescript
+# 正常下载测试
+npm run example
+# 高速暂停/继续状态切换(每200ms切换, 无间歇切换也没问题, 只是可能没时间下载文件)下载测试, 直到文件下载完毕
+npm run stricttest
 ```
 
 ### 2. API
@@ -34,15 +41,17 @@ npm install --save parallel-downloader
 
 ```typescript
 import {
+    Logger, 
+    ConsoleLogger, 
+    LoggerInterface,
     DownloadManager, 
     DownloadTask, 
     DownloadEvent, 
     DownloadStatus, 
     FileDescriptor, 
-    Logger, 
     FileInformationDescriptor, 
     ErrorMessage
-} from "parallel-downloader";
+} from "node-parallel-downloader";
 ```
 
 ###### 2.2.2. 创建任务组
@@ -132,9 +141,63 @@ task.getTaskId();
 task.getDescriptor();
 ```
 
+###### 2.2.8. 禁用或改变日志打印方式
+```typescript
+// 设置禁用log
+Logger.setDisabled(true);
+// 设置Logger的代理类
+// Logger.setProxy()接受一个实现了LoggerInterface接口的对象参数
+Logger.setProxy(new ConsoleLogger());
+```
 
 
+### 3. 示例代码
+##### 3.1. 正常下载
+```typescript
+
+// 设置不禁用log
+Logger.setDisabled(false);
+// 设置Logger的代理类
+Logger.setProxy(new ConsoleLogger());
 
 
+async function example(): Promise<DownloadTask> {
+    const manager = await new DownloadManager()
+        .configConfigDir('./temp_info')
+        .configMaxWorkerCount(10)
+        .configProgressTicktockMillis(500)
+        .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename: string) => {
+            return crypto.createHash('md5').update(downloadUrl).digest('hex');
+        })
+        .configFileInfoDescriptor(async (descriptor: FileDescriptor) => {
+            descriptor.contentType = 'application/x-7z-compressed';
+            descriptor.contentLength = 39142884;
+            // 自己实现md5, 暂时未使用
+            descriptor.md5 = '';
+            return descriptor;
+        })
+        .loadInfoFiles();
 
+    const task: DownloadTask = await manager.newTask(
+        'https://a24.gdl.netease.com/Terminal.7z',
+        'temp_repo',
+        'Terminal.7z',
+        5
+    );
+    task.on(DownloadEvent.STARTED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.STARTED:', task.getStatus());
+    }).on(DownloadEvent.PROGRESS, (descriptor, progress) => {
+        const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
+        const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
+        const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
+        Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`, task.getStatus());
+    }).on(DownloadEvent.FINISHED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.FINISHED:', descriptor, task.getStatus());
+    }).on(DownloadEvent.ERROR, (descriptor, errorMessage) => {
+        Logger.error('+++DownloadEvent.ERROR:', descriptor, errorMessage, task.getStatus());
+    });
+    const started = await task.start();
+    return task;
+}
+```
 

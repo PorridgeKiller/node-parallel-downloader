@@ -5,9 +5,8 @@
  */
 
 import DownloadManager from './src/DownloadManager';
-import {DownloadEvent, DownloadStatus, FileDescriptor} from './src/Config';
-import Logger from './src/util/Logger';
-import DownloadTask from "./src/DownloadTask";
+import {Logger, DownloadEvent, DownloadStatus, FileDescriptor} from './src/Config';
+import DownloadTask from './src/DownloadTask';
 import crypto from 'crypto';
 
 async function test() {

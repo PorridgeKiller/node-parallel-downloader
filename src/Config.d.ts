@@ -4,7 +4,7 @@
  * Date: 2020-05-18 17:37
  */
 import { EventEmitter } from 'events';
-import Logger from './util/Logger';
+import Logger from './util/DownLogger';
 import DownloadManager from './DownloadManager';
 import DownloadTask from './DownloadTask';
 import DownloadWorker from './DownloadWorker';
@@ -13,22 +13,22 @@ export declare const Config: {
     BLOCK_FILENAME_EXTENSION: string;
 };
 export declare enum DownloadStatus {
-    STOP = "STOP",
-    INIT = "INIT",
-    FINISHED = "FINISHED",
-    DOWNLOADING = "DOWNLOADING",
-    CANCEL = "CANCEL",
-    ERROR = "ERROR",
-    MERGE = "MERGE"
+    STOP = 'STOP',
+    INIT = 'INIT',
+    FINISHED = 'FINISHED',
+    DOWNLOADING = 'DOWNLOADING',
+    CANCEL = 'CANCEL',
+    ERROR = 'ERROR',
+    MERGE = 'MERGE'
 }
 export declare enum DownloadEvent {
-    ERROR = "ERROR",
-    STARTED = "STARTED",
-    STOP = "STOP",
-    FINISHED = "FINISHED",
-    CANCELED = "CANCELED",
-    PROGRESS = "PROGRESS",
-    MERGE = "MERGE"
+    ERROR = 'ERROR',
+    STARTED = 'STARTED',
+    STOP = 'STOP',
+    FINISHED = 'FINISHED',
+    CANCELED = 'CANCELED',
+    PROGRESS = 'PROGRESS',
+    MERGE = 'MERGE'
 }
 export declare class ErrorMessage {
     code: string;
@@ -40,14 +40,14 @@ export declare class ErrorMessage {
     static fromErrorEnum(errEnum: DownloadErrorEnum, error: NodeJS.ErrnoException): ErrorMessage;
 }
 export declare enum DownloadErrorEnum {
-    DESCRIBE_FILE_ERROR = "1000@error occurred when fetching file description",
-    REQUEST_TIMEOUT = "1001@request timeout",
-    UNKNOWN_PROTOCOL = "1002@unknown protocol",
-    SERVER_UNAVAILABLE = "1003@server unavailable",
-    CREATE_DOWNLOAD_DIR_ERROR = "1004@failed to create download directory",
-    READ_CHUNK_FILE_ERROR = "1005@failed to read chunk file",
-    WRITE_CHUNK_FILE_ERROR = "1006@failed to write into chunk file",
-    APPEND_TARGET_FILE_ERROR = "1007@failed to append target file"
+    DESCRIBE_FILE_ERROR = '1000@error occurred when fetching file description',
+    REQUEST_TIMEOUT = '1001@request timeout',
+    UNKNOWN_PROTOCOL = '1002@unknown protocol',
+    SERVER_UNAVAILABLE = '1003@server unavailable',
+    CREATE_DOWNLOAD_DIR_ERROR = '1004@failed to create download directory',
+    READ_CHUNK_FILE_ERROR = '1005@failed to read chunk file',
+    WRITE_CHUNK_FILE_ERROR = '1006@failed to write into chunk file',
+    APPEND_TARGET_FILE_ERROR = '1007@failed to append target file'
 }
 declare type TaskIdGenerator = (downloadUrl: string, storageDir: string, filename: string) => Promise<string>;
 declare type FileInformationDescriptor = (descriptor: FileDescriptor) => Promise<FileDescriptor>;
