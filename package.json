@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "description": "A parallel downloader implemented by Nodejs",
   "main": "lib/Config.js",
-  "types": "dist/Config.d.ts",
+  "types": "lib/Config.d.ts",
   "scripts": {
-    "publish": "tsc && npm publish",
+    "publish": "npm publish",
     "build": "tsc",
     "dev": "ts-node Test.ts",
     "example": "ts-node Example.ts --example",

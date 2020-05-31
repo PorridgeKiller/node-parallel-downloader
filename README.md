@@ -201,3 +201,10 @@ async function example(): Promise<DownloadTask> {
 }
 ```
 
+### X. 后续待优化
+1. Http的续传依据抽象化, 可用户自定义
+2. 提供内置基于HEAD请求获取文件尺寸的FileInformationDescriptor实现类
+3. 提供更多回调事件
+4. 尽量多的操作都交给DownloadManager管理完成, 增强其功能
+5. 看情况增加文件完整性校验功能
+6. 第0个文件块不走拼接逻辑, 减少文件复制IO, 提高性能

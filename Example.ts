@@ -16,7 +16,9 @@ Logger.setDisabled(false);
 // 设置Logger的代理类
 Logger.setProxy(new ConsoleLogger());
 
-
+/**
+ * 正常下载流程
+ */
 async function example(): Promise<DownloadTask> {
     const manager = await new DownloadManager()
         .configConfigDir('./temp_info')
