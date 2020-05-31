@@ -191,7 +191,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
             request = https.request(opts);
         } else {
             // 不支持的协议
-            this.emit(DownloadEvent.ERROR, this.index, DownloadErrorEnum.UNKNOWN_PROTOCOL);
+            this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.UNKNOWN_PROTOCOL, new Error(`${parsedUrl.protocol}`)));
             return;
         }
         // 监听并发起request
@@ -204,7 +204,6 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * @param req 请求
      */
     private sendRequest(req: http.ClientRequest) {
-        this.emit(DownloadEvent.STARTED, this.index);
         this.req = req;
         // 不知道为何，实际时长是两倍，15000ms = 实际30s
         req.setTimeout(30000);
@@ -254,10 +253,6 @@ export default class DownloadWorker extends DownloadStatusHolder {
                  * 后者在写入过程中会导致整个nodejs进程假死, 界面不可操作
                  */
                 appendStream.write(dataBytes, (err: any) => {
-                    // Logger.debug('this.getProgress() =', this.getProgress());
-                    // if (this.getProgress() > 1000000) {
-                    //     err = new Error();
-                    // }
                     if (!err) {
                         // 正常
                         this.updateProgress(dataBytes.length);

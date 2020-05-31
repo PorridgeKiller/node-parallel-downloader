@@ -10,14 +10,14 @@ import {
     DownloadErrorEnum,
     DownloadEvent,
     DownloadStatus,
+    DownloadWorker,
     ErrorMessage,
     FileDescriptor,
     FileInformationDescriptor,
 } from './Config';
 import DownloadStatusHolder from './DownloadStatusHolder';
-import DownloadWorker from './DownloadWorker';
-import {EventEmitter} from 'events';
 import * as FileOperator from './util/FileOperator';
+import {EventEmitter} from 'events';
 
 export default class DownloadTask extends DownloadStatusHolder {
 

@@ -3,9 +3,8 @@
  * Author: SiFan Wei - weisifan
  * Date: 2020-05-18 17:36
  */
-import DownloadTask from './DownloadTask';
 import {Logger, Config, DownloadErrorEnum, DownloadEvent, ErrorMessage,
-    TaskIdGenerator, FileInformationDescriptor, ChunkInfo, FileDescriptor,
+    TaskIdGenerator, FileInformationDescriptor, ChunkInfo, FileDescriptor, DownloadTask,
     defaultFileInformationDescriptor, defaultTaskIdGenerator} from './Config';
 import * as FileOperator from './util/FileOperator';
 
