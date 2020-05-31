@@ -5,46 +5,39 @@
  */
 
 import DownloadManager from './src/DownloadManager';
-import {DownloadEvent, DownloadStatus} from './src/Config';
+import {DownloadEvent, DownloadStatus, FileDescriptor} from './src/Config';
 import Logger from './src/util/Logger';
 import DownloadTask from "./src/DownloadTask";
+import crypto from 'crypto';
 
 async function test() {
 
-    // const writeStream = fs.createWriteStream('temp', {
-    //     flags: 'a'
-    // });
-    //
-    // for (let i = 0; i < 10; i++) {
-    //     writeStream.write('text' + i + '\n');
-    // }
-    // writeStream.close();
-
     const manager = new DownloadManager()
-        .configConfigDir('temp_info')
+        .configConfigDir('./temp_info')
         .configMaxWorkerCount(5)
-        .configProgressTicktockMillis(800);
-    // manager.configFileInfoDescriptor(async (descriptor: FileDescriptor) => {
-    //     descriptor.contentType = 'application/zip';
-    //     descriptor.contentLength = (35623715);
-    //     const md5 = crypto.createHash('md5');
-    //     descriptor.md5 = md5.update(descriptor.downloadUrl).digest('hex');
-    //     return descriptor;
-    // });
+        .configProgressTicktockMillis(1000)
+        // .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename: string) => {
+        //     return md5(downloadUrl);
+        // }).configFileInfoDescriptor(async (descriptor: FileDescriptor) => {
+        //     return descriptor;
+        // })
+    ;
+    manager.configFileInfoDescriptor(async (descriptor: FileDescriptor) => {
+        descriptor.contentType = 'application/zip';
+        descriptor.contentLength = (35623715);
+        const md5 = crypto.createHash('md5');
+        descriptor.md5 = md5.update(descriptor.downloadUrl).digest('hex');
+        return descriptor;
+    });
     await manager.loadInfoFiles();
-    const task = await manager.newTask(
-        'https://a24.gdl.netease.com/2003011457_12162019_GG_NetVios_190535.zip',
-        'temp_repo',
-        'GG_NetVios.zip',
-        10
-    );
 
-    // const task = await manager.newTask(
-    //     'https://a24.gdl.netease.com/1926111511_electronuts.zip',
-    //     'temp_repo',
-    //     '1926111511.zip',
-    //     5
-    // );
+
+    const task = await manager.newTask(
+        'https://a24.gdl.netease.com/1926111511_electronuts.zip',
+        'temp_repo',
+        '1926111511.zip',
+        5
+    );
     task.on(DownloadEvent.STARTED, (descriptor) => {
         Logger.debug('+++DownloadEvent.STARTED:');
         Logger.debug('status0:', task.getStatus());
@@ -52,7 +45,6 @@ async function test() {
         const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
         const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
         const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
-
         Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`);
         Logger.debug('status-progress:', task.getStatus());
     }).on(DownloadEvent.FINISHED, (descriptor) => {
@@ -64,6 +56,8 @@ async function test() {
     });
     manager.start(task.getTaskId());
     task.start();
+
+
 
     let count = 0;
     let flag = true;

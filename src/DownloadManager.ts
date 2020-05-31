@@ -15,7 +15,7 @@ import * as FileOperator from './util/FileOperator';
 export default class DownloadManager {
 
     private configDir: string = '';
-    private taskIdGenerator?: TaskIdGenerator = defaultTaskIdGenerator;
+    private taskIdGenerator: TaskIdGenerator = defaultTaskIdGenerator;
     private fileInfoDescriptor: FileInformationDescriptor = defaultFileInformationDescriptor;
     private tasks: Map<string, DownloadTask> = new Map<string, DownloadTask>();
     private maxWorkerCount: number = 10;
@@ -62,17 +62,17 @@ export default class DownloadManager {
     ): Promise<DownloadTask> {
         const {fileInfoDescriptor, progressTicktockMillis, taskIdGenerator} = this;
         let taskId: string = await taskIdGenerator(downloadUrl, storageDir, filename);
-        let task = this.getTask(taskId);
+        let task: DownloadTask | undefined = this.getTask(taskId);
         if (!!task) {
             return task;
         }
         // @ts-ignore
         let descriptor = await this.assembly(taskId, downloadUrl, storageDir, filename, chunks);
         task = new DownloadTask(descriptor, progressTicktockMillis, fileInfoDescriptor, false)
-            .on(DownloadEvent.FINISHED, (finishedTaskDescriptor) => {
+            .on(DownloadEvent.FINISHED, (finishedTaskDescriptor: FileDescriptor) => {
                 this.tasks.delete(finishedTaskDescriptor.taskId);
                 Logger.debug(`[DownManager]DownloadEvent.FINISHED: this.tasks.size = ${this.tasks.size}`);
-            }).on(DownloadEvent.CANCELED, (canceledTaskDescriptor) => {
+            }).on(DownloadEvent.CANCELED, (canceledTaskDescriptor: FileDescriptor) => {
                 this.tasks.delete(canceledTaskDescriptor.taskId);
             });
         // task加入任务池

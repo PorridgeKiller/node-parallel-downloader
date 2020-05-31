@@ -3,18 +3,18 @@
  * Author: SiFan Wei - weisifan
  * Date: 2020-05-20 15:46
  */
-import DownloadWorker from './DownloadWorker';
 import {
     ChunkInfo,
     Config,
     DownloadErrorEnum,
     DownloadEvent,
     DownloadStatus,
-    DownloadStatusHolder,
     ErrorMessage,
     FileDescriptor,
     FileInformationDescriptor,
 } from './Config';
+import DownloadStatusHolder from './DownloadStatusHolder';
+import DownloadWorker from './DownloadWorker';
 import {EventEmitter} from 'events';
 import Logger from './util/Logger';
 import * as FileOperator from './util/FileOperator';
@@ -23,18 +23,18 @@ export default class DownloadTask extends DownloadStatusHolder {
 
     private fileInfoDescriptor: FileInformationDescriptor;
 
-    private simpleTaskId: string;
+    private simpleTaskId?: string;
 
     private descriptor: FileDescriptor;
 
     /**
      * 负责下载的workers数组
      */
-    private workers: DownloadWorker[] = [];
+    private workers?: DownloadWorker[];
     private progressTicktockMillis: number;
     private progressNumber: any;
 
-    private downloadDir: string;
+    private downloadDir!: string;
 
     private isFromConfigFile: boolean;
 
@@ -60,6 +60,10 @@ export default class DownloadTask extends DownloadStatusHolder {
 
     public getTaskId() {
         return this.descriptor.taskId;
+    }
+
+    public getDescriptor() {
+        return this.descriptor;
     }
 
     private getSimpleTaskId() {
@@ -90,7 +94,7 @@ export default class DownloadTask extends DownloadStatusHolder {
             // 创建下载目录，用来存放下载块临时文件
             if (!await FileOperator.mkdirsIfNonExistsAsync(this.downloadDir).catch((err) => {
                 // Logger.warn(`[DownloadTask-${this.simpleTaskId}]DownloadDir: ${this.downloadDir} create failed`);
-                this.emit(DownloadEvent.ERROR, ErrorMessage.fromErrorEnum(DownloadErrorEnum.CREATE_DOWNLOAD_DIR_FAILED, err));
+                this.emit(DownloadEvent.ERROR, ErrorMessage.fromErrorEnum(DownloadErrorEnum.CREATE_DOWNLOAD_DIR_ERROR, err));
                 return false;
             })) {
                 return;
@@ -100,6 +104,9 @@ export default class DownloadTask extends DownloadStatusHolder {
             const shouldAppendFile = skipDescribeAndDivide;
             // 新的任务所走的流程
             this.describeAndDivide(descriptor, skipDescribeAndDivide).then(async (d) => {
+                if (!d) {
+                    return;
+                }
                 // todo 知道了文件的类型&尺寸
                 // 1. 创建download workers, 并加入任务池
                 this.workers = await this.dispatchForWorkers(d, shouldAppendFile);
@@ -276,7 +283,7 @@ export default class DownloadTask extends DownloadStatusHolder {
         const {progressTicktockMillis, prevProgress} = this;
         // bytes
         let progress = 0;
-        this.workers.forEach((worker) => {
+        this.workers && this.workers.forEach((worker) => {
             progress += worker.getProgress();
         });
         // bytes/s
@@ -298,13 +305,20 @@ export default class DownloadTask extends DownloadStatusHolder {
      * @param descriptor
      * @param skip 是否跳过这一步
      */
-    private async describeAndDivide(descriptor: FileDescriptor, skip: boolean): Promise<FileDescriptor> {
+    private async describeAndDivide(descriptor: FileDescriptor, skip: boolean): Promise<FileDescriptor | undefined> {
         this.printLog(`describeAndDivide-computed: skip=${skip}; ${JSON.stringify(descriptor)}`);
         if (skip) {
             return descriptor;
         }
         const {fileInfoDescriptor} = this;
-        descriptor = await fileInfoDescriptor(descriptor);
+        // @ts-ignore
+        descriptor = await fileInfoDescriptor(descriptor).catch((err) => {
+            this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.DESCRIBE_FILE_ERROR, err));
+            return undefined;
+        });
+        if (!descriptor) {
+            return;
+        }
         this.descriptor = descriptor;
         this.printLog(`prepareForNewTask: ${JSON.stringify(descriptor)}`);
         const {chunks, contentLength} = descriptor;
@@ -348,7 +362,7 @@ export default class DownloadTask extends DownloadStatusHolder {
     private async dispatchForWorkers(descriptor: FileDescriptor, shouldAppendFile: boolean): Promise<DownloadWorker[]> {
         this.printLog(`dispatchForWorkers: shouldAppendFile=${shouldAppendFile}; ${JSON.stringify(descriptor)}`);
         const {downloadDir} = this;
-        const {taskId, downloadUrl, computed} = descriptor;
+        const {taskId, downloadUrl, computed, contentType} = descriptor;
         const {chunksInfo} = computed;
         const workers = this.workers || [];
         this.prevProgress = 0;
@@ -370,7 +384,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                     taskId,
                     downloadDir,
                     length,
-                    descriptor.contentType,
+                    contentType,
                     index,
                     from,
                     to,
@@ -382,16 +396,17 @@ export default class DownloadTask extends DownloadStatusHolder {
 
                 }).on(DownloadEvent.MERGE, async (chunkIndex) => {
                     await this.tryMerge();
-                }).on(DownloadEvent.ERROR, (chunkIndex, errorEnum) => {
-                    this.workers.forEach((w, idx) => {
-                        if (idx === chunkIndex) {
-                            return;
+                }).on(DownloadEvent.ERROR, async (chunkIndex, errorEnum) => {
+                    const {workers} = this;
+                    if (workers) {
+                        for (let j = 0; j < workers.length; j++) {
+                            if (j === chunkIndex) {
+                                return;
+                            }
+                            await workers[j].tryStop(false);
                         }
-                        // Logger.debug(`[DownloadTask-${this.getSimpleTaskId()}]OnError: invoker = ${chunkIndex}; call = ${idx}`);
-                        // this.printLog();
-                        w.tryStop(false);
-                    });
-                    this.tryError(chunkIndex, errorEnum);
+                    }
+                    await this.tryError(chunkIndex, errorEnum);
                 }).on(DownloadEvent.CANCELED, (chunkIndex) => {
 
                 });

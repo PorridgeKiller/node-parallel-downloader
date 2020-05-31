@@ -9,7 +9,8 @@ import * as https from 'https';
 import * as FileOperator from './util/FileOperator';
 import Logger from './util/Logger';
 import {EventEmitter} from 'events';
-import {Config, DownloadErrorEnum, DownloadEvent, DownloadStatus, DownloadStatusHolder, ErrorMessage} from './Config';
+import {Config, DownloadErrorEnum, DownloadEvent, DownloadStatus, ErrorMessage} from './Config';
+import DownloadStatusHolder from './DownloadStatusHolder';
 
 
 export default class DownloadWorker extends DownloadStatusHolder {
@@ -212,7 +213,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
         req.on('response', (resp: http.ClientResponse) => {
             this.handleResponse(resp);
         });
-        req.on('timeout', (err) => {
+        req.on('timeout', (err: any) => {
             this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT, err));
         });
         req.on('error', (err) => {
@@ -269,7 +270,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
             resp.on('end', async () => {
                 this.req = undefined;
                 appendStream.close();
-                this.printLog(`-> response end during ${this.getStatus()}`);
+                this.printLog(`-> response end while status @${this.getStatus()}`);
                 if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOP) {
                     // 因为错误而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
                 } else {

@@ -45,7 +45,7 @@ export async function mkdirsIfNonExistsAsync(dirPath: string): Promise<boolean> 
     }
     if (await mkdirsIfNonExistsAsync(path.dirname(dirPath))) {
         return new Promise<boolean>((resolve, reject) => {
-            fs.mkdir(dirPath, async (err: NodeJS.ErrnoException) => {
+            fs.mkdir(dirPath, async (err: NodeJS.ErrnoException | null) => {
                 if (err) {
                     reject(err);
                 } else {

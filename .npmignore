@@ -1,0 +1,10 @@
+.gitignore
+.npmignore
+node_modules
+.idea
+Test.ts
+Test.js
+Test.d.ts
+src
+temp_info
+temp_repo
