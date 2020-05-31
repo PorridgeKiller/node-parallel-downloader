@@ -397,15 +397,6 @@ export default class DownloadTask extends DownloadStatusHolder {
                 }).on(DownloadEvent.MERGE, async (chunkIndex) => {
                     await this.tryMerge();
                 }).on(DownloadEvent.ERROR, async (chunkIndex, errorEnum) => {
-                    const {workers} = this;
-                    if (workers) {
-                        for (let j = 0; j < workers.length; j++) {
-                            if (j === chunkIndex) {
-                                return;
-                            }
-                            await workers[j].tryStop(false);
-                        }
-                    }
                     await this.tryError(chunkIndex, errorEnum);
                 }).on(DownloadEvent.CANCELED, (chunkIndex) => {
 
