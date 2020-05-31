@@ -1,6 +1,12 @@
-import DownloadManager from './src/DownloadManager';
-import {DownloadEvent, DownloadStatus, FileDescriptor, Logger, ConsoleLogger, LoggerInterface} from './src/Config';
-import DownloadTask from './src/DownloadTask';
+import {
+    Logger,
+    ConsoleLogger,
+    LoggerInterface,
+    DownloadManager,
+    DownloadTask,
+    DownloadEvent,
+    DownloadStatus,
+    FileDescriptor} from './src/Config';
 import crypto from 'crypto';
 import process from 'process';
 

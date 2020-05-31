@@ -154,6 +154,17 @@ Logger.setProxy(new ConsoleLogger());
 ### 3. 示例代码
 ##### 3.1. 正常下载
 ```typescript
+import {
+    Logger, 
+    ConsoleLogger, 
+    LoggerInterface,
+    DownloadManager, 
+    DownloadTask, 
+    DownloadEvent,
+    DownloadStatus, 
+    FileDescriptor} from './src/Config';
+import crypto from 'crypto';
+import process from 'process';
 
 // 设置不禁用log
 Logger.setDisabled(false);
