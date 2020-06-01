@@ -11,7 +11,7 @@
 ### 1. 安装
 
 ##### 1.1. npm
-
+https://www.npmjs.com/package/node-parallel-downloader
 ```
 npm install --save node-parallel-downloader
 ```
