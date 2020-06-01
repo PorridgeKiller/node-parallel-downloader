@@ -1,11 +1,11 @@
 {
   "name": "node-parallel-downloader",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "description": "A parallel downloader implemented by Nodejs",
   "main": "lib/Config.js",
   "types": "lib/Config.d.ts",
   "scripts": {
-    "publish": "npm publish",
+    "release": "tsc && npm publish",
     "build": "tsc",
     "dev": "ts-node Test.ts",
     "example": "ts-node Example.ts --example",
@@ -18,7 +18,7 @@
     "node",
     "downloader"
   ],
-  "author": "weisifan-porridge",
+  "author": "PorridgeKiller",
   "license": "ISC",
   "dependencies": {
     "@types/crypto-js": "^3.1.43"

@@ -6,7 +6,7 @@
 
 import * as crypto from 'crypto';
 import LoggerInterface from './util/LoggerInterface';
-import DownloadManager from './DownloadManager';
+import DownloadTaskGroup from './DownloadTaskGroup';
 import DownloadTask from './DownloadTask';
 import DownloadWorker from './DownloadWorker';
 
@@ -246,7 +246,7 @@ export {
     Logger,
     ConsoleLogger,
     LoggerInterface,
-    DownloadManager,
+    DownloadTaskGroup,
     DownloadTask,
     DownloadWorker,
 }

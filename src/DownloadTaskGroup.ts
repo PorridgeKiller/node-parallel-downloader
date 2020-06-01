@@ -10,7 +10,7 @@ import * as FileOperator from './util/FileOperator';
 
 
 
-export default class DownloadManager {
+export default class DownloadTaskGroup {
 
     private configDir: string = '';
     private taskIdGenerator: TaskIdGenerator = defaultTaskIdGenerator;
@@ -69,7 +69,7 @@ export default class DownloadManager {
         task = new DownloadTask(descriptor, progressTicktockMillis, fileInfoDescriptor, false)
             .on(DownloadEvent.FINISHED, (finishedTaskDescriptor: FileDescriptor) => {
                 this.tasks.delete(finishedTaskDescriptor.taskId);
-                Logger.debug(`[DownManager]DownloadEvent.FINISHED: this.tasks.size = ${this.tasks.size}`);
+                Logger.debug(`[DownTaskGroup]DownloadEvent.FINISHED: this.tasks.size = ${this.tasks.size}`);
             }).on(DownloadEvent.CANCELED, (canceledTaskDescriptor: FileDescriptor) => {
                 this.tasks.delete(canceledTaskDescriptor.taskId);
             });
@@ -111,7 +111,7 @@ export default class DownloadManager {
     /**
      * 加载已有的配置文件
      */
-    public async loadInfoFiles(): Promise<DownloadManager> {
+    public async loadFromConfigDir(): Promise<DownloadTaskGroup> {
         const {configDir} = this;
         if (!await FileOperator.existsAsync(configDir, true)) {
             return this;
@@ -129,11 +129,11 @@ export default class DownloadManager {
                 const infoFile = infoFiles[i];
                 const json = await FileOperator.readFileAsync(infoFile);
                 const printJson = json.toString().replace('\n', '');
-                Logger.debug(`[DownManager]ConfigFile: ${infoFile}: ${printJson})`);
+                Logger.debug(`[DownTaskGroup]ConfigFile: ${infoFile}: ${printJson})`);
                 const descriptor = JSON.parse(json);
                 const task = new DownloadTask(descriptor, progressTicktockMillis, fileInfoDescriptor, true);
                 this.tasks.set(task.getTaskId(), task);
-                Logger.debug(`[DownManager]loadInfoFiles: taskId = ${task.getTaskId()}`);
+                Logger.debug(`[DownTaskGroup]loadInfoFiles: taskId = ${task.getTaskId()}`);
             } catch (e) {
                 // 加载一个文件出错就跳过
                 Logger.warn(e);
@@ -143,7 +143,9 @@ export default class DownloadManager {
     }
 
 
-    private async assembly(taskId: string, downloadUrl: string, storageDir: string, filename: string, chunks: number): Promise<FileDescriptor> {
+    private async assembly(
+        taskId: string, downloadUrl: string, storageDir: string, filename: string, chunks: number
+    ): Promise<FileDescriptor> {
         const {configDir, maxWorkerCount, taskIdGenerator} = this;
         // 控制分块数量不至于太大, 太离谱
         if (chunks < 1) {
@@ -161,7 +163,7 @@ export default class DownloadManager {
             chunks,
             createTime: new Date(),
         };
-        Logger.debug(`[DownManager]FileDescriptor:`, fileDescriptor);
+        Logger.debug(`[DownTaskGroup]FileDescriptor:`, fileDescriptor);
         return fileDescriptor;
     }
 }

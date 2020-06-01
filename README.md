@@ -31,7 +31,7 @@ npm run stricttest
 
 
 继承了EventEmitter，管理一个下载任务, 一个文件的下载任务对应一个Task, 一个Task内部管理了多个Worker. 下载任务会被分解为多个文件块来下载, 最后合并为目标文件(相当于多线程下载)
-- DownloadManager 
+- DownloadTaskGroup 
 
 管理一个下载任务组, 内部管理多个DownloadTask, 用来创建任务
 
@@ -44,7 +44,7 @@ import {
     Logger, 
     ConsoleLogger, 
     LoggerInterface,
-    DownloadManager, 
+    DownloadTaskGroup, 
     DownloadTask, 
     DownloadEvent, 
     DownloadStatus, 
@@ -56,7 +56,7 @@ import {
 
 ###### 2.2.2. 创建任务组
 ```typescript
-const manager = new DownloadManager()
+const taskGroup = new DownloadTaskGroup()
     // 指定配置文件保存的位置
     .configConfigDir('./temp_info')
     // 指定每个下载任务最大的分割数量
@@ -74,7 +74,7 @@ const manager = new DownloadManager()
 ```
 ###### 2.2.3. 扫描没有下载完成的任务
 ````typescript
-await manager.loadInfoFiles();
+await taskGroup.loadFromConfigDir();
 ````
 
 ###### 2.2.4. 新建下载任务
@@ -82,7 +82,7 @@ await manager.loadInfoFiles();
 ```typescript
 // 此处会返回DownloadTask对象
 // 如果该任务下载了一半, 则返回的是下载了一半的DownloadTask对象
-const task: DownloadTask = await manager.newTask(
+const task: DownloadTask = await taskGroup.newTask(
 		'https://your_download_url',
   	'download_directory',
   	'filename',
@@ -158,7 +158,7 @@ import {
     Logger, 
     ConsoleLogger, 
     LoggerInterface,
-    DownloadManager, 
+    DownloadTaskGroup, 
     DownloadTask, 
     DownloadEvent,
     DownloadStatus, 
@@ -173,7 +173,7 @@ Logger.setProxy(new ConsoleLogger());
 
 
 async function example(): Promise<DownloadTask> {
-    const manager = await new DownloadManager()
+    const taskGroup = await new DownloadTaskGroup()
         .configConfigDir('./temp_info')
         .configMaxWorkerCount(10)
         .configProgressTicktockMillis(500)
@@ -187,9 +187,9 @@ async function example(): Promise<DownloadTask> {
             descriptor.md5 = '';
             return descriptor;
         })
-        .loadInfoFiles();
+        .loadFromConfigDir();
 
-    const task: DownloadTask = await manager.newTask(
+    const task: DownloadTask = await taskGroup.newTask(
         'https://a24.gdl.netease.com/Terminal.7z',
         'temp_repo',
         'Terminal.7z',
@@ -216,6 +216,6 @@ async function example(): Promise<DownloadTask> {
 1. Http的续传依据抽象化, 可用户自定义
 2. 提供内置基于HEAD请求获取文件尺寸的FileInformationDescriptor实现类
 3. 提供更多回调事件
-4. 尽量多的操作都交给DownloadManager管理完成, 增强其功能
+4. 尽量多的操作都交给DownloadTaskGroup管理完成, 增强其功能
 5. 看情况增加文件完整性校验功能
 6. 第0个文件块不走拼接逻辑, 减少文件复制IO, 提高性能

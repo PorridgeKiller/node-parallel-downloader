@@ -191,7 +191,10 @@ export default class DownloadWorker extends DownloadStatusHolder {
             request = https.request(opts);
         } else {
             // 不支持的协议
-            this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.UNKNOWN_PROTOCOL, new Error(`${parsedUrl.protocol}`)));
+            this.tryError(
+                true,
+                ErrorMessage.fromErrorEnum(DownloadErrorEnum.UNKNOWN_PROTOCOL, new Error(`${parsedUrl.protocol}`))
+            );
             return;
         }
         // 监听并发起request
@@ -257,7 +260,10 @@ export default class DownloadWorker extends DownloadStatusHolder {
                         // 正常
                         this.updateProgress(dataBytes.length);
                     } else {
-                        this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR, err));
+                        this.tryError(
+                            true,
+                            ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR, err)
+                        );
                     }
                 });
             });

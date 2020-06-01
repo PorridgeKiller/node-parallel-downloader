@@ -2,7 +2,7 @@ import {
     Logger,
     ConsoleLogger,
     LoggerInterface,
-    DownloadManager,
+    DownloadTaskGroup,
     DownloadTask,
     DownloadEvent,
     DownloadStatus,
@@ -26,7 +26,7 @@ Logger.setProxy(new ConsoleLogger());
  * 正常下载流程
  */
 async function example(): Promise<DownloadTask> {
-    const manager = await new DownloadManager()
+    const taskGroup = await new DownloadTaskGroup()
         .configConfigDir('./temp_info')
         .configMaxWorkerCount(10)
         .configProgressTicktockMillis(500)
@@ -40,9 +40,9 @@ async function example(): Promise<DownloadTask> {
             descriptor.md5 = '';
             return descriptor;
         })
-        .loadInfoFiles();
+        .loadFromConfigDir();
 
-    const task: DownloadTask = await manager.newTask(
+    const task: DownloadTask = await taskGroup.newTask(
         'https://a24.gdl.netease.com/Terminal.7z',
         'temp_repo',
         'Terminal.7z',
@@ -84,13 +84,16 @@ async function loopStopStart(task: DownloadTask, count: number) {
     return new Promise(async (resolve, reject) => {
         setTimeout(async () => {
             if (count % 2 === 0) {
-                await task.stop();
+                task.stop();
+                task.stop();
+                task.stop();
             } else {
-                await task.start();
+                task.start();
+                task.start();
             }
             Logger.debug(`loopStopStart-${count}`, task.getStatus());
             resolve();
-        }, 200);
+        }, 100);
     });
 }
 
