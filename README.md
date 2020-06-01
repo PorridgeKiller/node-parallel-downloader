@@ -83,11 +83,11 @@ await taskGroup.loadFromConfigDir();
 // 此处会返回DownloadTask对象
 // 如果该任务下载了一半, 则返回的是下载了一半的DownloadTask对象
 const task: DownloadTask = await taskGroup.newTask(
-		'https://your_download_url',
-  	'download_directory',
-  	'filename',
-  	// 任务启用'线程'数
-  	5 
+    'https://your_download_url',
+    'download_directory',
+    'filename',
+    // 任务启用'线程'数
+    5 
 );
 ```
 
@@ -96,16 +96,16 @@ const task: DownloadTask = await taskGroup.newTask(
 ```typescript
 // 开始事件
 task.on(DownloadEvent.STARTED, (descriptor) => {
-  	Logger.debug('+++DownloadEvent.STARTED:');
-  	Logger.debug('status0:', task.getStatus());
+    Logger.debug('+++DownloadEvent.STARTED:');
+    Logger.debug('status0:', task.getStatus());
 })
 // 下载进度事件
 .on(DownloadEvent.PROGRESS, (descriptor, progress) => {
     const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
     const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
     const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
-		Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`);
-  	Logger.debug('status-progress:', task.getStatus());
+    Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`);
+    Logger.debug('status-progress:', task.getStatus());
 })
 // 下载完成事件
 .on(DownloadEvent.FINISHED, (descriptor) => {
