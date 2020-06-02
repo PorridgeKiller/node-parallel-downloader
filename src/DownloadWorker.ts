@@ -146,7 +146,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
     public async tryMerge(emit: boolean) {
         const flag = this.compareAndSwapStatus(DownloadStatus.MERGING);
         if (flag) {
-            emit && this.emit(DownloadEvent.BEFORE_MERGE, this.index);
+            emit && this.emit(DownloadEvent.MERGE, this.index);
         }
         return flag;
     }

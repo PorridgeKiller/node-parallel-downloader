@@ -107,6 +107,10 @@ task.on(DownloadEvent.STARTED, (descriptor) => {
     Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`);
     Logger.debug('status-progress:', task.getStatus());
 })
+// 将要合并事件
+.on(DownloadEvent.MERGE, (descriptor) => {
+    Logger.debug('+++DownloadEvent.MERGE:', descriptor, task.getStatus());
+})
 // 下载完成事件
 .on(DownloadEvent.FINISHED, (descriptor) => {
     Logger.debug('+++DownloadEvent.FINISHED:', descriptor);
@@ -171,11 +175,14 @@ Logger.setDisabled(false);
 Logger.setProxy(new ConsoleLogger());
 
 
+/**
+ * 正常下载流程
+ */
 async function example(): Promise<DownloadTask> {
     const taskGroup = await new DownloadTaskGroup()
         .configConfigDir('./temp_info')
         .configMaxWorkerCount(10)
-        .configProgressTicktockMillis(500)
+        .configProgressTicktockMillis(50)
         .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename: string) => {
             return crypto.createHash('md5').update(downloadUrl).digest('hex');
         })
@@ -200,11 +207,17 @@ async function example(): Promise<DownloadTask> {
         const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
         const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
         const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
-        Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`, task.getStatus());
+        Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`, task.getStatus(), JSON.stringify(progress));
+    }).on(DownloadEvent.BEFORE_MERGE, (descriptor) => {
+        Logger.debug('+++DownloadEvent.BEFORE_MERGE:', descriptor, task.getStatus());
+    }).on(DownloadEvent.MERGED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.MERGED:', descriptor, task.getStatus());
     }).on(DownloadEvent.FINISHED, (descriptor) => {
         Logger.debug('+++DownloadEvent.FINISHED:', descriptor, task.getStatus());
     }).on(DownloadEvent.ERROR, (descriptor, errorMessage) => {
         Logger.error('+++DownloadEvent.ERROR:', descriptor, errorMessage, task.getStatus());
+    }).on(DownloadEvent.CANCELED, (descriptor) => {
+        Logger.error('+++DownloadEvent.CANCELED:', descriptor, task.getStatus());
     });
     const started = await task.start();
     return task;

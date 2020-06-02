@@ -140,8 +140,7 @@ export enum DownloadStatus {
 export enum DownloadEvent {
     STARTED = 'STARTED',
     STOP = 'STOP',
-    BEFORE_MERGE = 'BEFORE_MERGE',
-    MERGED = 'MERGED',
+    MERGE = 'MERGE',
     FINISHED = 'FINISHED',
     CANCELED = 'CANCELED',
     PROGRESS = 'PROGRESS',

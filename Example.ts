@@ -55,10 +55,8 @@ async function example(): Promise<DownloadTask> {
         const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
         const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
         Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`, task.getStatus(), JSON.stringify(progress));
-    }).on(DownloadEvent.BEFORE_MERGE, (descriptor) => {
-        Logger.debug('+++DownloadEvent.BEFORE_MERGE:', descriptor, task.getStatus());
-    }).on(DownloadEvent.MERGED, (descriptor) => {
-        Logger.debug('+++DownloadEvent.MERGED:', descriptor, task.getStatus());
+    }).on(DownloadEvent.MERGE, (descriptor) => {
+        Logger.debug('+++DownloadEvent.MERGE:', descriptor, task.getStatus());
     }).on(DownloadEvent.FINISHED, (descriptor) => {
         Logger.debug('+++DownloadEvent.FINISHED:', descriptor, task.getStatus());
     }).on(DownloadEvent.ERROR, (descriptor, errorMessage) => {

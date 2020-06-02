@@ -249,13 +249,11 @@ export default class DownloadTask extends DownloadStatusHolder {
         if (this.canAllWorkersMerge()) {
             const expectStatus = DownloadStatus.MERGING;
             const flag = this.compareAndSwapStatus(expectStatus);
-            const status = this.getStatus();
             if (flag) {
+                this.emitEvent(expectStatus, DownloadEvent.MERGE);
                 this.stopProgressTicktockLooper();
-                this.emitEvent(expectStatus, DownloadEvent.BEFORE_MERGE);
                 // 合并块文件
                 await this.mergeChunks();
-                this.emitEvent(expectStatus, DownloadEvent.MERGED);
                 // 合并完成，状态设置为FINISH
                 await this.tryFinish();
             }
@@ -405,7 +403,7 @@ export default class DownloadTask extends DownloadStatusHolder {
 
                 }).on(DownloadEvent.STOP, (chunkIndex) => {
 
-                }).on(DownloadEvent.BEFORE_MERGE, async (chunkIndex) => {
+                }).on(DownloadEvent.MERGE, async (chunkIndex) => {
                     await this.tryMerge();
                 }).on(DownloadEvent.ERROR, async (chunkIndex, errorEnum) => {
                     await this.tryError(chunkIndex, errorEnum);
