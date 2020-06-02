@@ -1,12 +1,12 @@
 import {
-    Logger,
     ConsoleLogger,
-    LoggerInterface,
-    DownloadTaskGroup,
-    DownloadTask,
     DownloadEvent,
     DownloadStatus,
-    FileDescriptor} from './src/Config';
+    DownloadTask,
+    DownloadTaskGroup,
+    FileDescriptor,
+    Logger
+} from './lib/Config';
 import crypto from 'crypto';
 import process from 'process';
 
@@ -16,6 +16,12 @@ import process from 'process';
  * Date: 2020-05-31 22:39
  */
 
+const getStackTrace = () => {
+    const obj = {};
+    Error.captureStackTrace(obj, getStackTrace);
+    // @ts-ignore
+    return obj.stack;
+};
 
 // 设置不禁用log
 Logger.setDisabled(false);
@@ -26,10 +32,11 @@ Logger.setProxy(new ConsoleLogger());
  * 正常下载流程
  */
 async function example(): Promise<DownloadTask> {
+    Logger.printStackTrace();
     const taskGroup = await new DownloadTaskGroup()
         .configConfigDir('./temp_info')
         .configMaxWorkerCount(10)
-        .configProgressTicktockMillis(50)
+        .configProgressTicktockMillis(100)
         .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename: string) => {
             return crypto.createHash('md5').update(downloadUrl).digest('hex');
         })
@@ -62,9 +69,10 @@ async function example(): Promise<DownloadTask> {
     }).on(DownloadEvent.ERROR, (descriptor, errorMessage) => {
         Logger.error('+++DownloadEvent.ERROR:', descriptor, errorMessage, task.getStatus());
     }).on(DownloadEvent.CANCELED, (descriptor) => {
-        Logger.error('+++DownloadEvent.CANCELED:', descriptor, task.getStatus());
+        Logger.warn('+++DownloadEvent.CANCELED:', descriptor, task.getStatus());
     });
     const started = await task.start();
+    Logger.assert(started);
     return task;
 }
 
@@ -75,12 +83,13 @@ async function strictTest() {
     const task: DownloadTask = await example();
     let count = 0;
     while (true) {
-        if (task.getStatus() === DownloadStatus.FINISHED) {
+        if (task.getStatus() === DownloadStatus.FINISHED || task.getStatus() === DownloadStatus.CANCELED) {
             break;
         }
         await loopStopStart(task, count++);
     }
     Logger.debug('download task done!!!');
+    Logger.assert(task.getStatus() === DownloadStatus.FINISHED);
 }
 
 
@@ -97,7 +106,7 @@ async function loopStopStart(task: DownloadTask, count: number) {
             }
             Logger.debug(`loopStopStart-${count}`, task.getStatus());
             resolve();
-        }, 150);
+        }, 200);
     });
 }
 

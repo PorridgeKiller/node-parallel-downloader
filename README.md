@@ -174,15 +174,15 @@ Logger.setDisabled(false);
 // 设置Logger的代理类
 Logger.setProxy(new ConsoleLogger());
 
-
 /**
  * 正常下载流程
  */
 async function example(): Promise<DownloadTask> {
+    Logger.printStackTrace();
     const taskGroup = await new DownloadTaskGroup()
         .configConfigDir('./temp_info')
         .configMaxWorkerCount(10)
-        .configProgressTicktockMillis(50)
+        .configProgressTicktockMillis(100)
         .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename: string) => {
             return crypto.createHash('md5').update(downloadUrl).digest('hex');
         })
@@ -215,11 +215,14 @@ async function example(): Promise<DownloadTask> {
     }).on(DownloadEvent.ERROR, (descriptor, errorMessage) => {
         Logger.error('+++DownloadEvent.ERROR:', descriptor, errorMessage, task.getStatus());
     }).on(DownloadEvent.CANCELED, (descriptor) => {
-        Logger.error('+++DownloadEvent.CANCELED:', descriptor, task.getStatus());
+        Logger.warn('+++DownloadEvent.CANCELED:', descriptor, task.getStatus());
     });
     const started = await task.start();
+    Logger.assert(started);
     return task;
 }
+
+example();
 ```
 
 ### X. 后续待优化

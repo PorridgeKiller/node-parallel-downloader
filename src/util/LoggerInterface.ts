@@ -6,15 +6,15 @@
 
 export default interface LoggerInterface {
 
-    debug(message?: any, ...args: any[]): void;
+    debug(...args: any[]): void;
 
-    info(message?: any, ...args: any[]): void;
+    info(...args: any[]): void;
 
-    warn(message?: any, ...args: any[]): void;
+    warn(...args: any[]): void;
 
-    error(message?: any, ...args: any[]): void;
+    error( ...args: any[]): void;
 
-    printStackTrace(): void;
+    printStackTrace(...args: any[]): void;
 
     assert(condition: boolean, ...errorArgs: any[]): void;
 

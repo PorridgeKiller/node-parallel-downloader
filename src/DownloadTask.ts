@@ -142,6 +142,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                 this.startProgressTicktockLooper();
             }
             this.emitEvent(expectStatus, DownloadEvent.STARTED);
+            this.emitEvent(expectStatus, DownloadEvent.STARTED);
         }
         return flag;
     }
@@ -565,8 +566,23 @@ export default class DownloadTask extends DownloadStatusHolder {
      * @param expectStatus 与事件匹配的状态
      * @param event 事件
      * @param args
+     * @return 是否成功发射事件
      */
-    private emitEvent(expectStatus: DownloadStatus, event: DownloadEvent, ...args: any[]) {
-         this.getStatus() === expectStatus && this.emit(event, this.descriptor, ...args);
+    private emitEvent(expectStatus: DownloadStatus, event: DownloadEvent, ...args: any[]): boolean {
+        if (this.getStatus() === expectStatus) {
+            // 状态与事件匹配, 该事件应该被触发
+            this.emit(event, this.descriptor, ...args);
+            return true;
+        }
+        // 状态与事件不匹配, 该事件不应该被触发
+        // 这种状态代表, 在事件回调通知的函数中, 用户改变了任务状态
+        // 比如在Start事件回调中调用了cancel(), 那么在Start的状态逻辑中, 任务就已经被置为了其他状态
+        // 则后续Start的事件通知就不应该再被用户接收, 避免用户收到错误的状态转换通知
+        Logger.warn(
+            `[DownTask-${this.simpleTaskId}]Event&StatusMismatch:`,
+            `event=${event}, expect=${expectStatus}, current=${this.getStatus()}.`,
+            `You'd better not do any status change operation in [callback] functions!`
+        );
+        return false;
     }
 }

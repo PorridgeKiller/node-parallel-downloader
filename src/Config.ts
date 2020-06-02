@@ -12,95 +12,33 @@ import DownloadWorker from './DownloadWorker';
 
 
 class ConsoleLogger implements LoggerInterface {
+    private _disabled: boolean = false;
 
-    debug(message?: any, ...args: any[]): void {
-        if (this.disabled()) {
-            return;
-        }
-        console.debug('[debug]', message, ...args);
+    debug(...args: any[]): void {
+        console.debug('[debug]', ...args);
     };
 
-    info(message?: any, ...args: any[]): void {
-        if (this.disabled()) {
-            return;
-        }
-        console.info('[info]', message, ...args);
+    info(...args: any[]): void {
+        console.info('[info ]', ...args);
     };
 
-    warn(message?: any, ...args: any[]): void {
-        if (this.disabled()) {
-            return;
-        }
-        console.warn('[warn]', message, ...args);
+    warn(...args: any[]): void {
+        console.warn('[warn ]', ...args);
     };
 
-    error(message?: any, ...args: any[]): void {
-        if (this.disabled()) {
-            return;
-        }
-        console.error('[debug]', message, ...args);
+    error(...args: any[]): void {
+        console.error('[error]', ...args, getStackTrace('invoke-stack-trace:'));
     };
 
-    printStackTrace(): void {
-        if (this.disabled()) {
-            return;
-        }
+    printStackTrace(...args: any[]): void {
+        console.info('[trace]', ...args, getStackTrace('invoke-stack-trace:'));
     }
 
     assert(condition: boolean, ...errorArgs: any[]): void {
-
-    }
-
-    disabled() {
-        return false;
-    }
-
-    setDisabled(disabled: boolean): void {
-    }
-
-    setProxy(logger: LoggerInterface) {
-
-    }
-}
-
-
-
-class DownloadLogger implements LoggerInterface {
-    private _disabled = false;
-    public logger: LoggerInterface = new ConsoleLogger();
-
-    debug(message?: any, ...args: any[]): void {
-        if (this.disabled()) {
+        if (condition) {
             return;
         }
-        this.logger && this.logger.debug(message, ...args);
-    };
-
-    info(message?: any, ...args: any[]): void {
-        if (this.disabled()) {
-            return;
-        }
-        this.logger && this.logger.info(message, ...args);
-    };
-
-    warn(message?: any, ...args: any[]): void {
-        if (this.disabled()) {
-            return;
-        }
-        this.logger && this.logger.warn(message, ...args);
-    };
-
-    error(message?: any, ...args: any[]): void {
-        if (this.disabled()) {
-            return;
-        }
-        this.logger && this.logger.error(message, ...args);
-    };
-
-    printStackTrace(): void {
-    }
-
-    assert(condition: boolean, ...errorArgs: any[]): void {
+        console.error('[assert]', ...errorArgs, getStackTrace('invoke-stack-trace:'));
     }
 
     disabled() {
@@ -111,8 +49,82 @@ class DownloadLogger implements LoggerInterface {
         this._disabled = disabled;
     }
 
-    setProxy(logger: LoggerInterface) {
-        this.logger = logger;
+    setProxy(proxy: LoggerInterface) {
+
+    }
+}
+
+const getStackTrace = (prefix: string) => {
+    const obj: any = {};
+    Error.captureStackTrace(obj, getStackTrace);
+    let stackStr = obj.stack;
+    for (let i = 0; i < 3; i++) {
+        stackStr = stackStr.substring(stackStr.indexOf('\n') + 1);
+    }
+    if (prefix) {
+        stackStr = prefix.concat('\n').concat(stackStr)
+    } else {
+        stackStr = '\n'.concat(stackStr);
+    }
+    return stackStr;
+};
+
+
+class DownloadLogger implements LoggerInterface {
+    public proxy: LoggerInterface = new ConsoleLogger();
+
+    debug(...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        this.proxy && this.proxy.debug(...args);
+    };
+
+    info(...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        this.proxy && this.proxy.info(...args);
+    };
+
+    warn(...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        this.proxy && this.proxy.warn(...args);
+    };
+
+    error(...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        this.proxy && this.proxy.error(...args);
+    };
+
+    printStackTrace(...args: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        this.proxy && this.proxy.printStackTrace(...args);
+    }
+
+    assert(condition: boolean, ...errorArgs: any[]): void {
+        if (this.disabled()) {
+            return;
+        }
+        this.proxy && this.proxy.assert(condition, ...errorArgs);
+    }
+
+    disabled() {
+        return this.proxy.disabled();
+    }
+
+    setDisabled(disabled: boolean): void {
+        this.proxy.setDisabled(disabled);
+    }
+
+    setProxy(proxy: LoggerInterface) {
+        this.proxy = proxy;
     }
 }
 
