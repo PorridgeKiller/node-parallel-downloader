@@ -85,23 +85,33 @@ export async function existsAsync(filePath: string, isDirectory?: boolean): Prom
 }
 
 
-export function deleteFileOrDirAsync(fileOrDirPath: string): Promise<any> {
+export async function deleteFileOrDirAsync(fileOrDirPath: string): Promise<any> {
     // 如果当前文件不存在，则退出
-    if (!fs.existsSync(fileOrDirPath)) {
+    const exists = await new Promise((resolve, reject) => {
+        fs.exists(fileOrDirPath, (exists) => {
+            resolve(exists);
+        });
+    });
+    if (!exists) {
         return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
         fs.stat(fileOrDirPath, (err, stat) => {
+            if (err) {
+                resolve(err);
+                return;
+            }
             if (!stat) {
                 resolve();
+                return;
             }
             if (stat.isDirectory()) {
-                deleteDirectory(fileOrDirPath).then(resolve).catch(reject);
+                deleteDirectory(fileOrDirPath).then(resolve);
             } else {
                 const parsed = path.parse(fileOrDirPath);
                 const filename = parsed.name + (parsed.ext ? parsed.ext : '');
                 const dir = parsed.dir ? parsed.dir : '';
-                deleteFile(dir, filename).then(resolve).catch(reject);
+                deleteFile(dir, filename).then(resolve);
             }
         });
     });
@@ -111,25 +121,39 @@ export function deleteDirectory(dirPath: string) {
     return new Promise((resolve, reject) => {
         fs.access(dirPath, (err1) => {
             if (err1) {
-                reject(err1);
+                resolve(err1);
                 return;
             }
-            fs.readdir(dirPath, (err2, files) => {
+            fs.readdir(dirPath, async (err2, files) => {
                 if (err2) {
-                    reject(err2);
+                    resolve(err2);
                     return;
                 }
-                Promise.all(files.map((file) => {
-                    return deleteFile(dirPath, file)
-                })).then(() => {
-                    fs.rmdir(dirPath, (err3) => {
-                        if (err3) {
-                            reject(err3);
-                            return;
-                        }
-                        resolve();
-                    })
-                }).catch(reject)
+                for (let i = 0; i < files.length; i++) {
+                    await deleteFile(dirPath, files[i]).catch((e) => {
+                        console.log(e);
+                    });
+                }
+                fs.rmdir(dirPath, (err3) => {
+                    if (err3) {
+                        resolve(err3);
+                        return;
+                    }
+                    resolve();
+                });
+                //
+                // Promise.all(files.map((file) => {
+                //
+                //     return deleteFile(dirPath, file);
+                // })).then(() => {
+                //     fs.rmdir(dirPath, (err3) => {
+                //         if (err3) {
+                //             reject(err3);
+                //             return;
+                //         }
+                //         resolve();
+                //     })
+                // }).catch(reject)
             })
         })
     })
@@ -140,7 +164,7 @@ export function deleteFile(dirPath: string, file: string) {
         let filePath = path.join(dirPath, file);
         fs.stat(filePath, (err1, stat) => {
             if (err1) {
-                reject(err1);
+                resolve(err1);
                 return;
             }
             if (!stat) {
@@ -150,7 +174,7 @@ export function deleteFile(dirPath: string, file: string) {
             if (stat.isFile()) {
                 fs.unlink(filePath, (err2) => {
                     if (err2) {
-                        reject(err2);
+                        resolve(err2);
                         return;
                     }
                     resolve();
@@ -160,7 +184,7 @@ export function deleteFile(dirPath: string, file: string) {
                 resolve(deleteDirectory(filePath));
             }
         })
-    })
+    });
 }
 
 /**
@@ -215,7 +239,7 @@ export async function fileLengthAsync(filePath: string): Promise<number> {
     return new Promise((resolve, reject) => {
         fs.stat(filePath, (err, stat) => {
             if (err) {
-                reject(err);
+                resolve(-1);
             } else {
                 resolve(stat.size);
             }

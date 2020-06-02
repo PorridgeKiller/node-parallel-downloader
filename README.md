@@ -164,7 +164,6 @@ import {
     DownloadStatus, 
     FileDescriptor} from 'node-parallel-downloader';
 import crypto from 'crypto';
-import process from 'process';
 
 // 设置不禁用log
 Logger.setDisabled(false);

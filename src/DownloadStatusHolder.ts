@@ -5,7 +5,7 @@
  */
 
 
-import {DownloadStatus} from './Config';
+import {DownloadStatus, DownloadEvent} from './Config';
 import {EventEmitter} from 'events';
 
 /**
@@ -24,7 +24,6 @@ export default class DownloadStatusHolder extends EventEmitter {
     public getStatus() {
         return this.status;
     }
-
 
     /**
      * CAS: 保证状态不被重复设置, 返回的boolean值用来保证各种事件只发送一次, 并且状态转换逻辑只执行一次
@@ -54,35 +53,35 @@ export default class DownloadStatusHolder extends EventEmitter {
             return false;
         } else if (nextStatus === DownloadStatus.DOWNLOADING) {
             if (prevStatus === DownloadStatus.FINISHED ||
-                prevStatus === DownloadStatus.MERGE ||
-                prevStatus === DownloadStatus.CANCEL) {
+                prevStatus === DownloadStatus.MERGING ||
+                prevStatus === DownloadStatus.CANCELED) {
                 return false;
             }
-        } else if (nextStatus === DownloadStatus.STOP) {
+        } else if (nextStatus === DownloadStatus.STOPPED) {
             if (prevStatus === DownloadStatus.INIT ||
-                prevStatus === DownloadStatus.MERGE ||
+                prevStatus === DownloadStatus.MERGING ||
                 prevStatus === DownloadStatus.FINISHED ||
-                prevStatus === DownloadStatus.CANCEL ||
+                prevStatus === DownloadStatus.CANCELED ||
                 prevStatus === DownloadStatus.ERROR) {
                 return false;
             }
-        } else if (nextStatus === DownloadStatus.MERGE) {
+        } else if (nextStatus === DownloadStatus.MERGING) {
             if (prevStatus === DownloadStatus.FINISHED ||
-                prevStatus === DownloadStatus.CANCEL) {
+                prevStatus === DownloadStatus.CANCELED) {
                 return false;
             }
         } else if (nextStatus === DownloadStatus.FINISHED) {
             if (prevStatus === DownloadStatus.ERROR ||
                 // prevStatus === DownloadStatus.STOP ||
-                prevStatus === DownloadStatus.CANCEL) {
+                prevStatus === DownloadStatus.CANCELED) {
                 return false;
             }
-        } else if (nextStatus === DownloadStatus.CANCEL) {
+        } else if (nextStatus === DownloadStatus.CANCELED) {
             // 任何状态都可以转为DownloadStatus.CANCEL
         } else if (nextStatus === DownloadStatus.ERROR) {
-            if (prevStatus === DownloadStatus.STOP ||
+            if (prevStatus === DownloadStatus.STOPPED ||
                 prevStatus === DownloadStatus.FINISHED ||
-                prevStatus === DownloadStatus.CANCEL) {
+                prevStatus === DownloadStatus.CANCELED) {
                 return false;
             }
         } else {

@@ -127,24 +127,25 @@ export const Config = {
 
 
 export enum DownloadStatus {
-    STOP = 'STOP',
     INIT = 'INIT',
-    FINISHED = 'FINISHED',
     DOWNLOADING = 'DOWNLOADING',
-    CANCEL = 'CANCEL',
+    STOPPED = 'STOPPED',
+    MERGING = 'MERGING',
+    FINISHED = 'FINISHED',
+    CANCELED = 'CANCELED',
     ERROR = 'ERROR',
-    MERGE = 'MERGE',
 }
 
 
 export enum DownloadEvent {
-    ERROR = 'ERROR',
     STARTED = 'STARTED',
     STOP = 'STOP',
+    BEFORE_MERGE = 'BEFORE_MERGE',
+    MERGED = 'MERGED',
     FINISHED = 'FINISHED',
     CANCELED = 'CANCELED',
     PROGRESS = 'PROGRESS',
-    MERGE = 'MERGE',
+    ERROR = 'ERROR',
 }
 
 

@@ -93,7 +93,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 块任务暂停
      */
     public async tryStop(emit: boolean) {
-        const flag = this.compareAndSwapStatus(DownloadStatus.STOP);
+        const flag = this.compareAndSwapStatus(DownloadStatus.STOPPED);
         if (flag) {
             this.abortRequest();
             emit && this.emit(DownloadEvent.STOP, this.index);
@@ -106,7 +106,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 块任务取消
      */
     public async tryCancel(emit: boolean) {
-        const flag = this.compareAndSwapStatus(DownloadStatus.CANCEL);
+        const flag = this.compareAndSwapStatus(DownloadStatus.CANCELED);
         if (flag) {
             this.abortRequest();
             if (FileOperator.existsAsync(this.chunkFilePath, false)) {
@@ -144,9 +144,9 @@ export default class DownloadWorker extends DownloadStatusHolder {
     }
 
     public async tryMerge(emit: boolean) {
-        const flag = this.compareAndSwapStatus(DownloadStatus.MERGE);
+        const flag = this.compareAndSwapStatus(DownloadStatus.MERGING);
         if (flag) {
-            emit && this.emit(DownloadEvent.MERGE, this.index);
+            emit && this.emit(DownloadEvent.BEFORE_MERGE, this.index);
         }
         return flag;
     }
@@ -271,7 +271,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
                 this.req = undefined;
                 appendStream.close();
                 this.printLog(`-> response end while status @${this.getStatus()}`);
-                if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOP) {
+                if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOPPED) {
                     // 因为错误而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
                 } else {
                     await this.tryMerge(true);
@@ -284,7 +284,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
     }
 
     public canMerge() {
-        return this.getStatus() === DownloadStatus.MERGE;
+        return this.getStatus() === DownloadStatus.MERGING;
     }
 
     /**
