@@ -162,7 +162,7 @@ import {
     DownloadTask, 
     DownloadEvent,
     DownloadStatus, 
-    FileDescriptor} from './src/Config';
+    FileDescriptor} from 'node-parallel-downloader';
 import crypto from 'crypto';
 import process from 'process';
 
