@@ -96,7 +96,7 @@ export async function deleteFileOrDirAsync(fileOrDirPath: string): Promise<any> 
         return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
-        fs.stat(fileOrDirPath, (err, stat) => {
+        fs.stat(fileOrDirPath, async (err, stat) => {
             if (err) {
                 resolve(err);
                 return;
@@ -106,12 +106,14 @@ export async function deleteFileOrDirAsync(fileOrDirPath: string): Promise<any> 
                 return;
             }
             if (stat.isDirectory()) {
-                deleteDirectory(fileOrDirPath).then(resolve);
+                const err1 = await deleteDirectory(fileOrDirPath);
+                resolve(err1);
             } else {
                 const parsed = path.parse(fileOrDirPath);
                 const filename = parsed.name + (parsed.ext ? parsed.ext : '');
                 const dir = parsed.dir ? parsed.dir : '';
-                deleteFile(dir, filename).then(resolve);
+                const err2 = await deleteFile(dir, filename);
+                resolve(err2);
             }
         });
     });
@@ -130,30 +132,19 @@ export function deleteDirectory(dirPath: string) {
                     return;
                 }
                 for (let i = 0; i < files.length; i++) {
-                    await deleteFile(dirPath, files[i]).catch((e) => {
-                        console.log(e);
-                    });
-                }
-                fs.rmdir(dirPath, (err3) => {
+                    const err3 = await deleteFile(dirPath, files[i]);
                     if (err3) {
                         resolve(err3);
                         return;
                     }
+                }
+                fs.rmdir(dirPath, (err4) => {
+                    if (err4) {
+                        resolve(err4);
+                        return;
+                    }
                     resolve();
                 });
-                //
-                // Promise.all(files.map((file) => {
-                //
-                //     return deleteFile(dirPath, file);
-                // })).then(() => {
-                //     fs.rmdir(dirPath, (err3) => {
-                //         if (err3) {
-                //             reject(err3);
-                //             return;
-                //         }
-                //         resolve();
-                //     })
-                // }).catch(reject)
             })
         })
     })

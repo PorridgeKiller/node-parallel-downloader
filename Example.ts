@@ -11,17 +11,10 @@ import crypto from 'crypto';
 import process from 'process';
 
 /**
- * Description:
+ * Description: 示例代码
  * Author: SiFan Wei - porridge
  * Date: 2020-05-31 22:39
  */
-
-const getStackTrace = () => {
-    const obj = {};
-    Error.captureStackTrace(obj, getStackTrace);
-    // @ts-ignore
-    return obj.stack;
-};
 
 // 设置不禁用log
 Logger.setDisabled(false);

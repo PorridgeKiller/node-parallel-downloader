@@ -191,7 +191,9 @@ export enum DownloadErrorEnum {
     CREATE_DOWNLOAD_DIR_ERROR = '1004@failed to create download directory',
     READ_CHUNK_FILE_ERROR = '1005@failed to read chunk file',
     WRITE_CHUNK_FILE_ERROR = '1006@failed to write into chunk file',
-    APPEND_TARGET_FILE_ERROR = '1007@failed to append target file',
+    DELETE_CHUNK_FILE_ERROR = '1007@failed to delete chunk file',
+    APPEND_TARGET_FILE_ERROR = '1008@failed to append target file',
+    FAILED_TO_RESUME_TASK = '1009@failed to resume download task',
 }
 
 

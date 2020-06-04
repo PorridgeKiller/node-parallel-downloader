@@ -1,6 +1,10 @@
 ## node-parallel-downloader
 基于nodejs实现的多线程断点续传的多任务下载器，断点续传基于Http-Header中Range字段，格式[Range=bytes=0-789]
 
+##### Gtihub
+
+https://github.com/PorridgeKiller/node-parallel-downloader
+
 #### Features
 - 全异步IO操作. 包括所有目录/文件读写操作, 高性能保证
 - 多线程下载. 每个下载任务内部由多个http请求支持, 并行下载不同的文件块, 更充分压榨网络带宽资源
@@ -30,10 +34,10 @@ npm run stricttest
 - DownloadTask extends EventEmitter
 
 
-继承了EventEmitter，管理一个下载任务, 一个文件的下载任务对应一个Task, 一个Task内部管理了多个Worker. 下载任务会被分解为多个文件块来下载, 最后合并为目标文件(相当于多线程下载)
+继承了EventEmitter，管理一个下载任务, 一个文件的下载任务对应一个Task, 一个Task内部管理了多个Worker. 下载任务会被分解为多个文件块来下载, 最后合并为目标文件（相当于多线程下载，但实际上只有一个线程，却得到不低于多线程的效果，得益于nodejs的异步事件驱动机制）
 - DownloadTaskGroup 
 
-管理一个下载任务组, 内部管理多个DownloadTask, 用来创建任务
+管理一个下载任务组, 内部管理多个DownloadTask，用来创建任务
 
 ##### 2.2. 使用方式
 

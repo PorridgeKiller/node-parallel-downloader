@@ -67,8 +67,13 @@ export default class DownloadTask extends DownloadStatusHolder {
     }
 
     private getSimpleTaskId() {
+        const taskId = this.getTaskId();
+        if (taskId.length > 4) {
+            // 只保留4位
+            return taskId.substring(taskId.length - 4);
+        }
         // 只保留4位
-        return this.getTaskId().substring(this.getTaskId().length - 4);
+        return taskId;
     }
 
     /**
@@ -116,6 +121,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                 // 2. 开始所有的workers
                 this.tryResume(true).catch((e) => {
                     Logger.error(e);
+                    this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.FAILED_TO_RESUME_TASK, e))
                 });
             });
         }
@@ -141,7 +147,6 @@ export default class DownloadTask extends DownloadStatusHolder {
                 }
                 this.startProgressTicktockLooper();
             }
-            this.emitEvent(expectStatus, DownloadEvent.STARTED);
             this.emitEvent(expectStatus, DownloadEvent.STARTED);
         }
         return flag;
@@ -184,10 +189,10 @@ export default class DownloadTask extends DownloadStatusHolder {
                     await worker.tryCancel(false);
                 }
             }
-            await FileOperator.deleteFileOrDirAsync(this.downloadDir);
+            let err = await FileOperator.deleteFileOrDirAsync(this.downloadDir);
             const outputFilePath = this.getOutputFilePath();
             if (await FileOperator.existsAsync(outputFilePath, false)) {
-                await FileOperator.deleteFileOrDirAsync(outputFilePath);
+                err = await FileOperator.deleteFileOrDirAsync(outputFilePath);
             }
             this.emitEvent(expectStatus, DownloadEvent.CANCELED);
         }
@@ -207,11 +212,11 @@ export default class DownloadTask extends DownloadStatusHolder {
             const {workers, descriptor} = this;
             if (workers) {
                 for (let i = 0; i < workers.length; i++) {
-                    const w = workers[i];
+                    const worker = workers[i];
                     if (i === chunkIndex) {
                         continue;
                     }
-                    await w.tryError(false, error);
+                    await worker.tryError(false, error);
                 }
             }
             this.emitEvent(expectStatus, DownloadEvent.ERROR, error);
@@ -236,7 +241,7 @@ export default class DownloadTask extends DownloadStatusHolder {
             }
             // 删除info文件
             await this.deleteInfoFile();
-            await FileOperator.deleteFileOrDirAsync(this.downloadDir);
+            const err = await FileOperator.deleteFileOrDirAsync(this.downloadDir);
             this.prevProgress = this.descriptor.contentLength;
             this.emitEvent(expectStatus, DownloadEvent.FINISHED);
         }
@@ -384,7 +389,13 @@ export default class DownloadTask extends DownloadStatusHolder {
                 progress = await this.existsChunkFile(index) ? await this.getChunkFileSize(index) : 0;
                 this.prevProgress += progress;
             } else {
-                await this.existsChunkFile(index) && await this.deleteChunkFile(index);
+                if (await this.existsChunkFile(index)) {
+                    const err = await this.deleteChunkFile(index);
+                    if (err) {
+                        await this.tryError(index, ErrorMessage.fromErrorEnum(DownloadErrorEnum.DELETE_CHUNK_FILE_ERROR, err));
+                        return workers;
+                    }
+                }
                 progress = 0;
             }
             this.printLog(`<[chunk_${index}]Conf(from=${from}, to=${to}, length=${length}) Worker(newFrom=${from + progress}, to=${to}, remaining=${to - progress + 1})>`);
