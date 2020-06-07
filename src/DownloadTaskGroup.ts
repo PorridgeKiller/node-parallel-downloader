@@ -3,18 +3,27 @@
  * Author: SiFan Wei - weisifan
  * Date: 2020-05-18 17:36
  */
-import {Logger, Config, DownloadErrorEnum, DownloadEvent, ErrorMessage,
-    TaskIdGenerator, FileInformationDescriptor, ChunkInfo, FileDescriptor, DownloadTask,
-    defaultFileInformationDescriptor, defaultTaskIdGenerator} from './Config';
+import {
+    Config,
+    DownloadEvent,
+    DownloadTask,
+    FileDescriptor,
+    FileInformationDescriptor,
+    HttpRequestOptionsBuilder,
+    Logger,
+    md5DownloadUrlTaskIdGenerator,
+    requestMethodHeadFileInformationDescriptor,
+    TaskIdGenerator
+} from './Config';
 import * as FileOperator from './util/FileOperator';
-
 
 
 export default class DownloadTaskGroup {
 
     private configDir: string = '';
-    private taskIdGenerator: TaskIdGenerator = defaultTaskIdGenerator;
-    private fileInfoDescriptor: FileInformationDescriptor = defaultFileInformationDescriptor;
+    private taskIdGenerator: TaskIdGenerator = md5DownloadUrlTaskIdGenerator;
+    private fileInfoDescriptor: FileInformationDescriptor = requestMethodHeadFileInformationDescriptor;
+    private httpRequestOptionsBuilder?: HttpRequestOptionsBuilder;
     private tasks: Map<string, DownloadTask> = new Map<string, DownloadTask>();
     private maxWorkerCount: number = 10;
     private progressTicktockMillis: number = 200;
@@ -44,33 +53,37 @@ export default class DownloadTaskGroup {
         return this;
     }
 
-    public deleteInfoFile(taskId: string) {
-
+    public configHttpRequestOptionsBuilder(builder: HttpRequestOptionsBuilder) {
+        this.httpRequestOptionsBuilder = builder;
+        return this;
     }
+
 
     /**
      * 创建新的下载任务
      * @param downloadUrl
      * @param storageDir
      * @param filename
-     * @param chunks
      */
     public async newTask(
-        downloadUrl: string, storageDir: string, filename: string, chunks: number
+        downloadUrl: string, storageDir: string, filename?: string
     ): Promise<DownloadTask> {
-        const {fileInfoDescriptor, progressTicktockMillis, taskIdGenerator} = this;
+        const {fileInfoDescriptor, progressTicktockMillis, maxWorkerCount, taskIdGenerator, httpRequestOptionsBuilder} = this;
         let taskId: string = await taskIdGenerator(downloadUrl, storageDir, filename);
         let task: DownloadTask | undefined = this.getTask(taskId);
         if (!!task) {
             return task;
         }
         // @ts-ignore
-        let descriptor = await this.assembly(taskId, downloadUrl, storageDir, filename, chunks);
-        task = new DownloadTask(descriptor, progressTicktockMillis, fileInfoDescriptor, false)
+        let descriptor = await this.assembly(taskId, downloadUrl, storageDir, filename, maxWorkerCount);
+        task = new DownloadTask(descriptor, {
+            progressTicktockMillis, fileInfoDescriptor, httpRequestOptionsBuilder
+        }, false)
             .on(DownloadEvent.FINISHED, (finishedTaskDescriptor: FileDescriptor) => {
                 this.tasks.delete(finishedTaskDescriptor.taskId);
                 Logger.debug(`[DownTaskGroup]DownloadEvent.FINISHED: this.tasks.size = ${this.tasks.size}`);
-            }).on(DownloadEvent.CANCELED, (canceledTaskDescriptor: FileDescriptor) => {
+            })
+            .on(DownloadEvent.CANCELED, (canceledTaskDescriptor: FileDescriptor) => {
                 this.tasks.delete(canceledTaskDescriptor.taskId);
             });
         // task加入任务池
@@ -81,23 +94,23 @@ export default class DownloadTaskGroup {
 
     public async start(taskId: string) {
         const task = this.getTask(taskId);
-        if (task === undefined) {
-            Logger.error(`taskId = ${taskId} not found`);
-            return;
-        }
-        await task.start();
+        return task && await task.start();
     }
 
     /**
-     * 停止下载，或者暂停下载
+     * 暂停下载
      */
     public async stop(taskId: string) {
         const task = this.getTask(taskId);
-        if (task === undefined) {
-            Logger.error(`taskId = ${taskId} not found`);
-            return;
-        }
-        await task.stop();
+        return task && await task.stop();
+    }
+
+    /**
+     * 取消下载
+     */
+    public async cancel(taskId: string) {
+        const task = this.getTask(taskId);
+        return task && await task.cancel();
     }
 
     /**
@@ -123,7 +136,7 @@ export default class DownloadTaskGroup {
         infoFiles = infoFiles.filter((infoFile) => {
             return infoFile.endsWith(Config.INFO_FILE_EXTENSION);
         });
-        const {fileInfoDescriptor, progressTicktockMillis} = this;
+        const {fileInfoDescriptor, progressTicktockMillis, httpRequestOptionsBuilder} = this;
         for (let i = 0; i < infoFiles.length; i++) {
             try {
                 const infoFile = infoFiles[i];
@@ -131,7 +144,9 @@ export default class DownloadTaskGroup {
                 const printJson = json.toString().replace('\n', '');
                 Logger.debug(`[DownTaskGroup]ConfigFile: ${infoFile}: ${printJson})`);
                 const descriptor = JSON.parse(json);
-                const task = new DownloadTask(descriptor, progressTicktockMillis, fileInfoDescriptor, true);
+                const task = new DownloadTask(descriptor, {
+                    progressTicktockMillis, fileInfoDescriptor, httpRequestOptionsBuilder
+                }, true);
                 this.tasks.set(task.getTaskId(), task);
                 Logger.debug(`[DownTaskGroup]loadInfoFiles: taskId = ${task.getTaskId()}`);
             } catch (e) {
@@ -156,6 +171,7 @@ export default class DownloadTaskGroup {
         // @ts-ignore
         const fileDescriptor: FileDescriptor = {
             taskId,
+            resume: false,
             configDir,
             downloadUrl,
             storageDir,

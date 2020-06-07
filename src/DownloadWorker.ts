@@ -7,54 +7,56 @@ import * as url from 'url';
 import * as http from 'http';
 import * as https from 'https';
 import * as FileOperator from './util/FileOperator';
-import {EventEmitter} from 'events';
-import {Logger, Config, DownloadErrorEnum, DownloadEvent, DownloadStatus, ErrorMessage} from './Config';
+import {
+    Logger,
+    Config,
+    DownloadErrorEnum,
+    DownloadEvent,
+    DownloadStatus,
+    ErrorMessage,
+    CommonUtils,
+    HttpRequestOptionsBuilder,
+} from './Config';
 import DownloadStatusHolder from './DownloadStatusHolder';
 
+export interface WorkerOptions {
+    httpRequestOptionsBuilder?: HttpRequestOptionsBuilder
+}
 
 export default class DownloadWorker extends DownloadStatusHolder {
     private downloadDir: string;
     private taskId: string;
-    private simpleTaskId: string;
+    private simpleTaskId!: string;
     private index: number;
     private from: number = 0;
     private to: number = 0;
     private downloadUrl: string;
     private chunkFilePath: string;
-    private contentLength: number;
+    private length: number;
     private contentType: string;
+    private options: WorkerOptions;
 
     private progress: number = 0;
-    private req?: http.ClientRequest;
+    private req: http.ClientRequest | undefined;
 
 
-    constructor(taskId: string, downloadDir: string, contentLength: number, contentType: string, index: number,
-                from: number, to: number, progress: number, downloadUrl: string) {
+    constructor(taskId: string, downloadDir: string, length: number, contentType: string, index: number,
+                from: number, to: number, progress: number, downloadUrl: string, options: WorkerOptions) {
         super();
         this.downloadDir = downloadDir;
         this.taskId = taskId;
-        this.simpleTaskId = this.getSimpleTaskId();
-        this.contentLength = contentLength;
+        this.length = length;
         this.contentType = contentType;
         this.index = index;
         this.from = from;
         this.to = to;
         this.progress = progress;
         this.downloadUrl = downloadUrl;
-        this.chunkFilePath = FileOperator.pathJoin(downloadDir, DownloadWorker.getChunkFilename(index));
+        this.options = options;
+        this.chunkFilePath = FileOperator.pathJoin(downloadDir, CommonUtils.getChunkFilename(taskId, index));
         this.tryInit();
     }
 
-
-    public static getChunkFilename(index: number) {
-        return 'chunk_' + index + Config.BLOCK_FILENAME_EXTENSION;
-    }
-
-
-
-    public getSimpleTaskId() {
-        return this.taskId.substring(28);
-    }
 
     /**
      * 设置初始化
@@ -62,6 +64,8 @@ export default class DownloadWorker extends DownloadStatusHolder {
     private tryInit() {
         const flag = this.compareAndSwapStatus(DownloadStatus.INIT);
         if (flag) {
+            this.simpleTaskId = CommonUtils.getSimpleTaskId(this.taskId);
+            this.req = undefined;
             // todo
         }
         return flag;
@@ -82,7 +86,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
     public async tryResume(emit: boolean) {
         const flag = await this.compareAndSwapStatus(DownloadStatus.DOWNLOADING);
         if (flag) {
-            this.doDownloadRequest(this.downloadUrl);
+            this.doDownloadRequest();
             emit && this.emit(DownloadEvent.STARTED, this.index);
         }
         return flag;
@@ -165,24 +169,27 @@ export default class DownloadWorker extends DownloadStatusHolder {
     }
 
 
-    private doDownloadRequest(urlPath: string) {
-        const {taskId, from, to, progress, contentLength, contentType} = this;
-        const parsedUrl = url.parse(urlPath);
-        const opts: http.RequestOptions = {
+    private doDownloadRequest() {
+        const {taskId, downloadUrl, index, from, to, progress, length, contentType, options} = this;
+        const parsedUrl = url.parse(downloadUrl);
+        let opts: http.RequestOptions = {
             method: 'GET',
             hostname: parsedUrl.hostname,
             port: parsedUrl.port,
             path: parsedUrl.path,
             agent: false,
             protocol: parsedUrl.protocol,
-            headers: {
-                'Content-Type': 'application/json;charset=UTF-8',
-                'Accept': contentType,
-                'Connection': 'keep-alive',
-                'Range': `bytes=${from + progress}-${to}`
-            },
+            headers: this.isResume() ? {
+                Accept: contentType,
+                Connection: 'keep-alive',
+                Range: `bytes=${from + progress}-${to}`
+            } : undefined,
         };
         this.printLog(`Started: Range: bytes=${from + progress}-${to}; progress=${this.progress}`);
+        const {httpRequestOptionsBuilder} = options;
+        if (httpRequestOptionsBuilder) {
+            opts = httpRequestOptionsBuilder(opts, taskId, index, from, to, progress);
+        }
         // 创建request
         let request;
         if ('http:' === parsedUrl.protocol) {
@@ -210,9 +217,14 @@ export default class DownloadWorker extends DownloadStatusHolder {
         this.req = req;
         // 不知道为何，实际时长是两倍，15000ms = 实际30s
         req.setTimeout(30000);
-        // @ts-ignore
-        req.on('response', (resp: http.ClientResponse) => {
-            this.handleResponse(resp);
+        req.on('response', async (resp: http.IncomingMessage) => {
+            if (resp.statusCode && resp.statusCode >= 200 && resp.statusCode < 300) {
+                this.handleResponse(resp);
+            } else {
+                // @ts-ignore
+                await this.tryError(true, ErrorMessage.fromCustomer(resp.statusCode, resp.statusMessage,
+                    new Error(`httpStatusCode = ${resp.statusCode}`)));
+            }
         });
         req.on('timeout', (err: any) => {
             this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT, err));
@@ -239,48 +251,52 @@ export default class DownloadWorker extends DownloadStatusHolder {
     }
 
 
-    // @ts-ignore
-    private async handleResponse(resp: http.ClientResponse) {
+    private handleResponse(resp: http.IncomingMessage) {
         const {chunkFilePath} = this;
-        if (resp.statusCode >= 200 && resp.statusCode < 300) {
-            // 创建块文件输出流
-            const appendStream = FileOperator.openAppendStream(chunkFilePath);
-            resp.on('data', (dataBytes: any) => {
-                if (!this.canWriteFile()) {
-                    return;
-                }
-                /**
-                 * ******************** 此处不可以使用 ********************
-                 * fs.appendFile(chunkFilePath, dataBytes, cb) 或者 fs.appendFileSync(chunkFilePath, chunk)
-                 * 前者高频调用fs.appendFile会抛出异常: EMFILE: too many open files
-                 * 后者在写入过程中会导致整个nodejs进程假死, 界面不可操作
-                 */
-                appendStream.write(dataBytes, (err: any) => {
-                    if (!err) {
-                        // 正常
-                        this.updateProgress(dataBytes.length);
-                    } else {
-                        this.tryError(
-                            true,
-                            ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR, err)
-                        );
-                    }
-                });
-            });
-            resp.on('end', async () => {
-                this.req = undefined;
-                appendStream.close();
-                this.printLog(`-> response end while status @${this.getStatus()}`);
-                if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOPPED) {
-                    // 因为错误而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
-                } else {
-                    await this.tryMerge(true);
-                }
-            });
+        const responseHeaders = resp.headers;
+        // 创建块文件输出流
+        let stream: FileOperator.WriteStream;
+        if (this.isResume()) {
+            stream = FileOperator.openAppendStream(chunkFilePath);
         } else {
-            await this.tryError(true, ErrorMessage.fromCustomer(resp.statusCode, resp.statusMessage,
-                new Error(`httpStatusCode = ${resp.statusCode}`)));
+            stream = FileOperator.openWriteStream(chunkFilePath);
         }
+        resp.on('data', (dataBytes: any) => {
+            if (!this.canWriteFile()) {
+                return;
+            }
+            /**
+             * ******************** 此处不可以使用 ********************
+             * fs.appendFile(chunkFilePath, dataBytes, cb) 或者 fs.appendFileSync(chunkFilePath, chunk)
+             * 前者高频调用fs.appendFile会抛出异常: EMFILE: too many open files
+             * 后者在写入过程中会导致整个nodejs进程假死, 界面不可操作
+             */
+            stream.write(dataBytes, (err: any) => {
+                if (!err) {
+                    // 正常
+                    this.updateProgress(dataBytes.length);
+                } else {
+                    this.tryError(
+                        true,
+                        ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR, err)
+                    );
+                }
+            });
+        });
+        resp.on('end', async () => {
+            this.req = undefined;
+            stream.close();
+            this.printLog(`-> response end while status @${this.getStatus()}`);
+            if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOPPED) {
+                // 因为错误而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
+            } else {
+                await this.tryMerge(true);
+            }
+        });
+    }
+
+    public isResume() {
+        return this.length > 0;
     }
 
     public canMerge() {

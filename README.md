@@ -1,5 +1,6 @@
 ## node-parallel-downloader
-基于nodejs实现的多线程断点续传的多任务下载器，断点续传基于Http-Header中Range字段，格式[Range=bytes=0-789]
+- 基于nodejs实现的多线程断点续传的多任务下载器，断点续传基于Http-Header中Range字段，格式[Range=bytes=0-789]
+- 也可以下载不支持断点续传的链接
 
 ##### Gtihub
 
@@ -54,7 +55,8 @@ import {
     DownloadStatus, 
     FileDescriptor, 
     FileInformationDescriptor, 
-    ErrorMessage
+    ErrorMessage,
+  	requestMethodHeadFileInformationDescriptor
 } from "node-parallel-downloader";
 ```
 
@@ -68,13 +70,16 @@ const taskGroup = new DownloadTaskGroup()
     // 指定下载进度通知频率/ms
     .configProgressTicktockMillis(1000)
     // 指定下载任务taskId的生成方式, taskId要求: 针对同一个下载任务, taskId唯一
-    .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename: string) => {
+    .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename?: string) => {
         return md5(downloadUrl);
     })
     // 指定文件尺寸, 文件content-type的获取方式
-    .configFileInfoDescriptor(async (descriptor: FileDescriptor) => {
-        return descriptor;
-    });
+		.configFileInfoDescriptor(requestMethodHeadFileInformationDescriptor)
+		// 指定http请求的options
+		.configHttpRequestOptionsBuilder((requestOptions: http.RequestOptions, taskId: string, index: number, from: number, to: number, progress: number) => {
+      	return requestOptions;
+    })
+;
 ```
 ###### 2.2.3. 扫描没有下载完成的任务
 ````typescript
@@ -89,9 +94,7 @@ await taskGroup.loadFromConfigDir();
 const task: DownloadTask = await taskGroup.newTask(
     'https://your_download_url',
     'download_directory',
-    'filename',
-    // 任务启用'线程'数
-    5 
+    'filename'
 );
 ```
 
@@ -163,14 +166,16 @@ Logger.setProxy(new ConsoleLogger());
 ##### 3.1. 正常下载
 ```typescript
 import {
-    Logger, 
-    ConsoleLogger, 
-    LoggerInterface,
-    DownloadTaskGroup, 
-    DownloadTask, 
+    ConsoleLogger,
     DownloadEvent,
-    DownloadStatus, 
-    FileDescriptor} from 'node-parallel-downloader';
+    DownloadStatus,
+    DownloadTask,
+    DownloadTaskGroup,
+    FileDescriptor,
+    Logger,
+    requestMethodHeadFileInformationDescriptor,
+} from './lib/Config';
+import http from 'http';
 import crypto from 'crypto';
 
 // 设置不禁用log
@@ -182,28 +187,23 @@ Logger.setProxy(new ConsoleLogger());
  * 正常下载流程
  */
 async function example(): Promise<DownloadTask> {
-    Logger.printStackTrace();
     const taskGroup = await new DownloadTaskGroup()
         .configConfigDir('./temp_info')
-        .configMaxWorkerCount(10)
-        .configProgressTicktockMillis(100)
-        .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename: string) => {
+        .configMaxWorkerCount(5)
+        .configProgressTicktockMillis(500)
+        .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename?: string) => {
             return crypto.createHash('md5').update(downloadUrl).digest('hex');
         })
-        .configFileInfoDescriptor(async (descriptor: FileDescriptor) => {
-            descriptor.contentType = 'application/x-7z-compressed';
-            descriptor.contentLength = 39142884;
-            // 自己实现md5, 暂时未使用
-            descriptor.md5 = '';
-            return descriptor;
+        .configFileInfoDescriptor(requestMethodHeadFileInformationDescriptor)
+        .configHttpRequestOptionsBuilder((requestOptions: http.RequestOptions, taskId: string, index: number, from: number, to: number, progress: number) => {
+            return requestOptions;
         })
         .loadFromConfigDir();
 
     const task: DownloadTask = await taskGroup.newTask(
         'https://a24.gdl.netease.com/Terminal.7z',
         'temp_repo',
-        'Terminal.7z',
-        5
+        undefined
     );
     task.on(DownloadEvent.STARTED, (descriptor) => {
         Logger.debug('+++DownloadEvent.STARTED:', task.getStatus());
@@ -230,9 +230,9 @@ example();
 ```
 
 ### X. 后续待优化
-1. Http的续传依据抽象化, 可用户自定义
-2. 提供内置基于HEAD请求获取文件尺寸的FileInformationDescriptor实现类
-3. 提供更多回调事件
-4. 尽量多的操作都交给DownloadTaskGroup管理完成, 增强其功能
-5. 看情况增加文件完整性校验功能
-6. 第0个文件块不走拼接逻辑, 减少文件复制IO, 提高性能
+- [x] 1. Http的续传依据抽象化, 可用户自定义
+- [x] 2. 提供内置基于HEAD请求获取文件尺寸的FileInformationDescriptor实现类
+- [ ] 3. 提供更多回调事件
+- [ ] 4. 尽量多的操作都交给DownloadTaskGroup管理完成, 增强其功能
+- [ ] 5. 看情况增加文件完整性校验功能
+- [x] 6. 第0个文件块不走拼接逻辑, 减少文件复制IO, 提高性能

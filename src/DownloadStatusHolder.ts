@@ -54,12 +54,14 @@ export default class DownloadStatusHolder extends EventEmitter {
         } else if (nextStatus === DownloadStatus.DOWNLOADING) {
             if (prevStatus === DownloadStatus.FINISHED ||
                 prevStatus === DownloadStatus.MERGING ||
+                prevStatus === DownloadStatus.RENAMING ||
                 prevStatus === DownloadStatus.CANCELED) {
                 return false;
             }
         } else if (nextStatus === DownloadStatus.STOPPED) {
             if (prevStatus === DownloadStatus.INIT ||
                 prevStatus === DownloadStatus.MERGING ||
+                prevStatus === DownloadStatus.RENAMING ||
                 prevStatus === DownloadStatus.FINISHED ||
                 prevStatus === DownloadStatus.CANCELED ||
                 prevStatus === DownloadStatus.ERROR) {
@@ -67,6 +69,15 @@ export default class DownloadStatusHolder extends EventEmitter {
             }
         } else if (nextStatus === DownloadStatus.MERGING) {
             if (prevStatus === DownloadStatus.FINISHED ||
+                prevStatus === DownloadStatus.CANCELED) {
+                return false;
+            }
+        } else if (nextStatus === DownloadStatus.RENAMING) {
+            // 只可以从MERGE/INIT状态装换过去
+            if (prevStatus === DownloadStatus.DOWNLOADING ||
+                prevStatus === DownloadStatus.STOPPED ||
+                prevStatus === DownloadStatus.ERROR ||
+                prevStatus === DownloadStatus.FINISHED ||
                 prevStatus === DownloadStatus.CANCELED) {
                 return false;
             }

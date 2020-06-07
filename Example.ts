@@ -5,8 +5,10 @@ import {
     DownloadTask,
     DownloadTaskGroup,
     FileDescriptor,
-    Logger
+    Logger,
+    requestMethodHeadFileInformationDescriptor,
 } from './lib/Config';
+import http from 'http';
 import crypto from 'crypto';
 import process from 'process';
 
@@ -25,28 +27,24 @@ Logger.setProxy(new ConsoleLogger());
  * 正常下载流程
  */
 async function example(): Promise<DownloadTask> {
-    Logger.printStackTrace();
+    // Logger.printStackTrace();
     const taskGroup = await new DownloadTaskGroup()
         .configConfigDir('./temp_info')
-        .configMaxWorkerCount(10)
-        .configProgressTicktockMillis(100)
-        .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename: string) => {
+        .configMaxWorkerCount(5)
+        .configProgressTicktockMillis(500)
+        .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename?: string) => {
             return crypto.createHash('md5').update(downloadUrl).digest('hex');
         })
-        .configFileInfoDescriptor(async (descriptor: FileDescriptor) => {
-            descriptor.contentType = 'application/x-7z-compressed';
-            descriptor.contentLength = 39142884;
-            // 自己实现md5, 暂时未使用
-            descriptor.md5 = '';
-            return descriptor;
+        .configFileInfoDescriptor(requestMethodHeadFileInformationDescriptor)
+        .configHttpRequestOptionsBuilder((requestOptions: http.RequestOptions, taskId: string, index: number, from: number, to: number, progress: number) => {
+            return requestOptions;
         })
         .loadFromConfigDir();
 
     const task: DownloadTask = await taskGroup.newTask(
         'https://a24.gdl.netease.com/Terminal.7z',
         'temp_repo',
-        'Terminal.7z',
-        5
+        undefined
     );
     task.on(DownloadEvent.STARTED, (descriptor) => {
         Logger.debug('+++DownloadEvent.STARTED:', task.getStatus());
@@ -66,6 +64,32 @@ async function example(): Promise<DownloadTask> {
     });
     const started = await task.start();
     Logger.assert(started);
+
+
+    const task2: DownloadTask = await taskGroup.newTask(
+        'http://download.redis.io/releases/redis-5.0.8.tar.gz',
+        'temp_repo',
+        undefined
+    );
+    task2.on(DownloadEvent.STARTED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.STARTED:', task2.getStatus());
+    }).on(DownloadEvent.PROGRESS, (descriptor, progress) => {
+        const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
+        const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
+        const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
+        Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`, task2.getStatus(), JSON.stringify(progress));
+    }).on(DownloadEvent.MERGE, (descriptor) => {
+        Logger.debug('+++DownloadEvent.MERGE:', descriptor, task2.getStatus());
+    }).on(DownloadEvent.FINISHED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.FINISHED:', descriptor, task2.getStatus());
+    }).on(DownloadEvent.ERROR, (descriptor, errorMessage) => {
+        Logger.error('+++DownloadEvent.ERROR:', descriptor, errorMessage, task2.getStatus());
+    }).on(DownloadEvent.CANCELED, (descriptor) => {
+        Logger.warn('+++DownloadEvent.CANCELED:', descriptor, task2.getStatus());
+    });
+    const started2 = await task2.start();
+    Logger.assert(started2);
+
     return task;
 }
 

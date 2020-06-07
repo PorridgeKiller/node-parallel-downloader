@@ -256,6 +256,19 @@ export async function isFile(filePath: string): Promise<boolean> {
 }
 
 
+export async function rename(oldPath: string, newPath: string, ) {
+    return new Promise<any>((resolve, reject) => {
+        fs.rename(oldPath, newPath, (err) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve();
+            }
+        });
+    });
+}
+
+
 /**
  * 拼接字符串数组为路径
  * @param paths
