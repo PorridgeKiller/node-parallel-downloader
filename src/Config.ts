@@ -152,6 +152,7 @@ export enum DownloadStatus {
 
 
 export enum DownloadEvent {
+    INITIALIZED = 'INITIALIZED',
     STARTED = 'STARTED',
     STOP = 'STOP',
     MERGE = 'MERGE',
@@ -201,7 +202,7 @@ export enum DownloadErrorEnum {
 
 
 
-declare type TaskIdGenerator = (downloadUrl: string, storageDir: string, filename?: string) => Promise<string>;
+declare type TaskIdGenerator = (downloadUrl: string, storageDir: string, filename: string | undefined, attachment?: any) => Promise<string>;
 
 declare type FileInformationDescriptor = (descriptor: FileDescriptor) => Promise<FileDescriptor>;
 
@@ -225,6 +226,7 @@ export interface FileDescriptor {
     resume: boolean;
     md5: string;
     createTime: Date;
+    attachment?: any;
     computed: {
         chunksInfo: ChunkInfo[];
     }

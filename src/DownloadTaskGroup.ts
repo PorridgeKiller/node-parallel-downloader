@@ -58,24 +58,31 @@ export default class DownloadTaskGroup {
         return this;
     }
 
+    public getTasks() {
+        const tasks: DownloadTask[] = [];
+        this.tasks.forEach((task, key, map) => tasks.push(task));
+        return tasks;
+    }
+
 
     /**
      * 创建新的下载任务
      * @param downloadUrl
      * @param storageDir
      * @param filename
+     * @param attachment 附加信息
      */
     public async newTask(
-        downloadUrl: string, storageDir: string, filename?: string
+        downloadUrl: string, storageDir: string, filename: string | undefined, attachment?: any
     ): Promise<DownloadTask> {
         const {fileInfoDescriptor, progressTicktockMillis, maxWorkerCount, taskIdGenerator, httpRequestOptionsBuilder} = this;
-        let taskId: string = await taskIdGenerator(downloadUrl, storageDir, filename);
+        let taskId: string = await taskIdGenerator(downloadUrl, storageDir, filename, attachment);
         let task: DownloadTask | undefined = this.getTask(taskId);
         if (!!task) {
             return task;
         }
         // @ts-ignore
-        let descriptor = await this.assembly(taskId, downloadUrl, storageDir, filename, maxWorkerCount);
+        let descriptor = await this.assembly(taskId, downloadUrl, storageDir, filename, attachment, maxWorkerCount);
         task = new DownloadTask(descriptor, {
             progressTicktockMillis, fileInfoDescriptor, httpRequestOptionsBuilder
         }, false)
@@ -159,7 +166,7 @@ export default class DownloadTaskGroup {
 
 
     private async assembly(
-        taskId: string, downloadUrl: string, storageDir: string, filename: string, chunks: number
+        taskId: string, downloadUrl: string, storageDir: string, filename: string, attachment: any, chunks: number
     ): Promise<FileDescriptor> {
         const {configDir, maxWorkerCount, taskIdGenerator} = this;
         // 控制分块数量不至于太大, 太离谱
@@ -178,6 +185,7 @@ export default class DownloadTaskGroup {
             filename,
             chunks,
             createTime: new Date(),
+            attachment,
         };
         Logger.debug(`[DownTaskGroup]FileDescriptor:`, fileDescriptor);
         return fileDescriptor;

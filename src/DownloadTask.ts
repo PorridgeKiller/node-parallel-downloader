@@ -35,6 +35,8 @@ export default class DownloadTask extends DownloadStatusHolder {
 
     private options: TaskOptions;
 
+    private attachment?: any;
+
     /**
      * 负责下载的workers数组
      */
@@ -53,12 +55,14 @@ export default class DownloadTask extends DownloadStatusHolder {
 
     constructor(fileDescriptor: FileDescriptor,
                 options: TaskOptions,
-                isFromConfigFile: boolean) {
+                isFromConfigFile: boolean,
+                attachment?: any) {
         super();
         // @ts-ignore
         this.descriptor = fileDescriptor;
         this.options = options;
         this.isFromConfigFile = isFromConfigFile;
+        this.attachment = attachment;
         this.tryInit();
     }
 
@@ -147,6 +151,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                 this.startProgressTicktockLooper();
             }
             this.emitEvent(expectStatus, DownloadEvent.STARTED);
+            this.emitEvent(expectStatus, DownloadEvent.PROGRESS, this.computeCurrentProcess());
         }
         return flag;
     }
@@ -277,6 +282,7 @@ export default class DownloadTask extends DownloadStatusHolder {
             const expectStatus = DownloadStatus.MERGING;
             const flag = this.compareAndSwapStatus(expectStatus);
             if (flag) {
+                this.emitEvent(DownloadStatus.MERGING, DownloadEvent.PROGRESS, this.computeCurrentProcess());
                 this.stopProgressTicktockLooper();
                 if (!await this.canRenameMergedFile()) {
                     this.emitEvent(expectStatus, DownloadEvent.MERGE);
@@ -403,6 +409,7 @@ export default class DownloadTask extends DownloadStatusHolder {
         const content = JSON.stringify(descriptor, null, 4);
         this.printLog(`describeAndDivide-computed: ${JSON.stringify(descriptor.computed)}`);
         await FileOperator.writeFileAsync(infoFile, content);
+        this.emitEvent(DownloadStatus.INIT, DownloadEvent.INITIALIZED);
         return descriptor;
     }
 
