@@ -100,7 +100,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
         const flag = this.compareAndSwapStatus(DownloadStatus.STOPPED);
         if (flag) {
             this.abortRequest();
-            emit && this.emit(DownloadEvent.STOP, this.index);
+            emit && this.emit(DownloadEvent.STOPPED, this.index);
         }
         return flag;
     }

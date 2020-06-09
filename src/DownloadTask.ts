@@ -172,7 +172,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                     await w.tryStop(false);
                 }
             }
-            this.emitEvent(expectStatus, DownloadEvent.STOP);
+            this.emitEvent(expectStatus, DownloadEvent.STOPPED);
         }
         return flag;
     }
@@ -461,7 +461,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                     }
                 ).on(DownloadEvent.STARTED, (chunkIndex) => {
 
-                }).on(DownloadEvent.STOP, (chunkIndex) => {
+                }).on(DownloadEvent.STOPPED, (chunkIndex) => {
 
                 }).on(DownloadEvent.MERGE, async (chunkIndex) => {
                     await this.tryMerge();

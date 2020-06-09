@@ -101,10 +101,18 @@ const task: DownloadTask = await taskGroup.newTask(
 ###### 2.2.5. 注册任务监听器
 
 ```typescript
+// 初始化完成事件. 任务创建直到完成, 只会调用一次
+task.on(DownloadEvent.INITIALIZED, (descriptor) => {
+    Logger.debug('+++DownloadEvent.INITIALIZED:', task.getStatus(), '任务创建直到完成, 只会调用一次');
+})
 // 开始事件
-task.on(DownloadEvent.STARTED, (descriptor) => {
+.on(DownloadEvent.STARTED, (descriptor) => {
     Logger.debug('+++DownloadEvent.STARTED:');
     Logger.debug('status0:', task.getStatus());
+})
+// 暂停事件
+.on(DownloadEvent.STOPPED, (descriptor) => {
+    Logger.debug('+++DownloadEvent.STOPPED:', task.getStatus());
 })
 // 下载进度事件
 .on(DownloadEvent.PROGRESS, (descriptor, progress) => {
@@ -127,6 +135,10 @@ task.on(DownloadEvent.STARTED, (descriptor) => {
 .on(DownloadEvent.ERROR, (descriptor, errorMessage) => {
     Logger.error('+++DownloadEvent.ERROR:', descriptor, errorMessage);
     Logger.error('status4:', task.getStatus());
+})
+// 任务取消事件
+.on(DownloadEvent.CANCELED, (descriptor) => {
+    Logger.warn('+++DownloadEvent.CANCELED:', descriptor, task.getStatus());
 });
 ```
 
@@ -205,8 +217,12 @@ async function example(): Promise<DownloadTask> {
         'temp_repo',
         undefined
     );
-    task.on(DownloadEvent.STARTED, (descriptor) => {
+    task.on(DownloadEvent.INITIALIZED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.INITIALIZED:', task.getStatus(), '任务创建直到完成, 只会调用一次');
+    }).on(DownloadEvent.STARTED, (descriptor) => {
         Logger.debug('+++DownloadEvent.STARTED:', task.getStatus());
+    }).on(DownloadEvent.STOPPED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.STOPPED:', task.getStatus());
     }).on(DownloadEvent.PROGRESS, (descriptor, progress) => {
         const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
         const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;

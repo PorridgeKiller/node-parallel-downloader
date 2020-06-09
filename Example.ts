@@ -46,8 +46,13 @@ async function example(): Promise<DownloadTask> {
         'temp_repo',
         undefined
     );
-    task.on(DownloadEvent.STARTED, (descriptor) => {
+
+    task.on(DownloadEvent.INITIALIZED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.INITIALIZED:', task.getStatus(), '任务创建直到完成, 只会调用一次');
+    }).on(DownloadEvent.STARTED, (descriptor) => {
         Logger.debug('+++DownloadEvent.STARTED:', task.getStatus());
+    }).on(DownloadEvent.STOPPED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.STOPPED:', task.getStatus());
     }).on(DownloadEvent.PROGRESS, (descriptor, progress) => {
         const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
         const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
@@ -94,7 +99,7 @@ async function example(): Promise<DownloadTask> {
 }
 
 /**
- * 每0.5s暂停/开始直到把文件下载完毕
+ * 每0.2s暂停/开始直到把文件下载完毕
  */
 async function strictTest() {
     const task: DownloadTask = await example();
