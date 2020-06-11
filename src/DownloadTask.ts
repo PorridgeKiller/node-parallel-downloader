@@ -21,9 +21,11 @@ import DownloadStatusHolder from './DownloadStatusHolder';
 import * as FileOperator from './util/FileOperator';
 
 export interface TaskOptions {
-    progressTicktockMillis: number,
-    fileInfoDescriptor: FileInformationDescriptor,
-    httpRequestOptionsBuilder?: HttpRequestOptionsBuilder,
+    progressTicktockMillis: number;
+    fileInfoDescriptor: FileInformationDescriptor;
+    httpRequestOptionsBuilder?: HttpRequestOptionsBuilder;
+    httpTimeout: number;
+    retryTimes: number;
 }
 
 
@@ -46,11 +48,6 @@ export default class DownloadTask extends DownloadStatusHolder {
     // private downloadDir!: string;
 
     private isFromConfigFile: boolean;
-
-    /**
-     * 上一次ticktock时的进度，用来计算速度
-     */
-    private prevProgress: number = 0;
 
 
     constructor(fileDescriptor: FileDescriptor,
@@ -88,7 +85,6 @@ export default class DownloadTask extends DownloadStatusHolder {
         const flag = this.compareAndSwapStatus(expectStatus);
         if (flag) {
             this.simpleTaskId = CommonUtils.getSimpleTaskId(this.getTaskId());
-            this.prevProgress = 0;
         }
         return flag;
     }
@@ -212,6 +208,9 @@ export default class DownloadTask extends DownloadStatusHolder {
         const flag = this.compareAndSwapStatus(expectStatus);
         if (flag) {
             error.taskId = this.getTaskId();
+            if (error.type === 'retry') {
+                error.type = 'generic';
+            }
             this.stopProgressTicktockLooper();
             const {workers, descriptor} = this;
             if (workers) {
@@ -220,6 +219,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                     if (i === chunkIndex) {
                         continue;
                     }
+                    console.log('callby: ' + chunkIndex, '; invoke: ' + i);
                     await worker.tryError(false, error);
                 }
             }
@@ -268,7 +268,6 @@ export default class DownloadTask extends DownloadStatusHolder {
             // 删除info文件
             await this.deleteInfoFile();
             const err = await FileOperator.deleteFileOrDirAsync(this.getDownloadDir());
-            this.prevProgress = this.descriptor.contentLength;
             this.emitEvent(expectStatus, DownloadEvent.FINISHED);
         }
         return flag;
@@ -324,23 +323,32 @@ export default class DownloadTask extends DownloadStatusHolder {
      * 计算当前下载进度
      */
     private computeCurrentProcess(): any {
-        const {options, prevProgress} = this;
+        const {options} = this;
         const {progressTicktockMillis} = options;
 
         // bytes
         let progress = 0;
+        let prevProgress = 0;
+        const chunks: any[] = [];
         this.workers && this.workers.forEach((worker) => {
-            progress += worker.getProgress();
+            const p = worker.getProgress();
+            const speed = Math.round(p.progress - p.prevProgress / (progressTicktockMillis / 1000)) / 1000 + 'kb/s';
+            chunks.push({
+                percent: Math.round((p.progress / p.length) * 10000) / 100 + '%',
+                speed
+            });
+            progress += p.progress;
+            prevProgress += p.prevProgress;
         });
         // bytes/s
         const speed = Math.round((progress - prevProgress) / (progressTicktockMillis / 1000));
-        this.prevProgress = progress;
         return {
             contentLength: this.descriptor.contentLength,
             progress,
             // ms
             ticktock: progressTicktockMillis,
             speed,
+            chunks,
         };
     }
 
@@ -409,7 +417,7 @@ export default class DownloadTask extends DownloadStatusHolder {
         const content = JSON.stringify(descriptor, null, 4);
         this.printLog(`describeAndDivide-computed: ${JSON.stringify(descriptor.computed)}`);
         await FileOperator.writeFileAsync(infoFile, content);
-        this.emitEvent(DownloadStatus.INIT, DownloadEvent.INITIALIZED);
+        this.emitEvent(DownloadStatus.DOWNLOADING, DownloadEvent.INITIALIZED);
         return descriptor;
     }
 
@@ -425,39 +433,25 @@ export default class DownloadTask extends DownloadStatusHolder {
         const {taskId, downloadUrl, storageDir, computed, contentType} = descriptor;
         const {chunksInfo} = computed;
         const workers = this.workers || [];
-        this.prevProgress = 0;
         for (let i = 0; i < chunksInfo.length; i++) {
             const chunkInfo = chunksInfo[i];
             const {index, length, from, to} = chunkInfo;
-            let progress;
-            if (shouldAppendFile) {
-                progress = await this.existsChunkFile(index) ? await this.getChunkFileSize(index) : 0;
-                this.prevProgress += progress;
-            } else {
-                if (await this.existsChunkFile(index)) {
-                    const err = await this.deleteChunkFile(index);
-                    if (err) {
-                        await this.tryError(index, ErrorMessage.fromErrorEnum(DownloadErrorEnum.DELETE_CHUNK_FILE_ERROR, err));
-                        return workers;
-                    }
-                }
-                progress = 0;
-            }
-            this.printLog(`<[chunk_${index}]Conf(from=${from}, to=${to}, length=${length}) Worker(newFrom=${from + progress}, to=${to}, remaining=${to - progress + 1})>`);
             let worker: DownloadWorker = workers[index];
             if (!worker) {
                 worker = new DownloadWorker(
                     taskId,
-                    CommonUtils.getChunkFileDirectory(taskId, storageDir, index),
+                    storageDir,
                     length,
                     contentType,
                     index,
                     from,
                     to,
-                    progress,
                     downloadUrl,
                     {
-                        httpRequestOptionsBuilder: options.httpRequestOptionsBuilder
+                        httpRequestOptionsBuilder: options.httpRequestOptionsBuilder,
+                        httpTimeout: options.httpTimeout,
+                        retryTimes: options.retryTimes,
+                        shouldAppendFile: shouldAppendFile,
                     }
                 ).on(DownloadEvent.STARTED, (chunkIndex) => {
 
@@ -470,14 +464,15 @@ export default class DownloadTask extends DownloadStatusHolder {
                 }).on(DownloadEvent.CANCELED, (chunkIndex) => {
 
                 });
+                // await worker.tryInit();
                 workers.push(worker);
             } else {
-                worker.resetProgress(progress);
+                // worker.resetProgress(progress);
             }
-            if (this.isResume() && progress >= length) {
-                // 表明这一块已经下载完毕，直接标记完成
-                await worker.tryMerge(false);
-            }
+            // if (this.isResume() && progress >= length) {
+            //     // 表明这一块已经下载完毕，直接标记完成
+            //     await worker.tryMerge(false);
+            // }
         }
         return workers;
     }
@@ -527,27 +522,6 @@ export default class DownloadTask extends DownloadStatusHolder {
         return FileOperator.pathJoin(descriptor.storageDir, descriptor.filename);
     }
 
-    private getChunkFile(index: number) {
-        const {descriptor} = this;
-        return {
-            name: CommonUtils.getChunkFilename(descriptor.taskId, index),
-            path: CommonUtils.getChunkFilePath(descriptor.taskId, descriptor.storageDir, index),
-        };
-    }
-
-    private async existsChunkFile(index: number) {
-        return await FileOperator.existsAsync(this.getChunkFile(index).path, false);
-    }
-
-    private async deleteChunkFile(index: number) {
-        return await FileOperator.deleteFileOrDirAsync(this.getChunkFile(index).path);
-
-
-    }
-
-    private async getChunkFileSize(index: number) {
-        return await FileOperator.fileLengthAsync(this.getChunkFile(index).path);
-    }
 
 
     /**
@@ -583,14 +557,15 @@ export default class DownloadTask extends DownloadStatusHolder {
      * @param i
      */
     private async mergeChunk(writeStream: FileOperator.WriteStream, i: number) {
-        const chunkFile = this.getChunkFile(i);
-        this.printLog(`merging: ${chunkFile.path}`);
+        // @ts-ignore
+        const chunkFilePath = this.workers[i].getChunkFilePath();
+        this.printLog(`merging: ${chunkFilePath}`);
         return new Promise((resolve, reject) => {
             if (!this.canReadWriteFile()) {
                 resolve(false);
                 return;
             }
-            const readStream = FileOperator.openReadStream(chunkFile.path);
+            const readStream = FileOperator.openReadStream(chunkFilePath);
             readStream.on('data', (chunk) => {
                 if (!this.canReadWriteFile()) {
                     readStream.close();

@@ -25,8 +25,11 @@ export default class DownloadTaskGroup {
     private fileInfoDescriptor: FileInformationDescriptor = requestMethodHeadFileInformationDescriptor;
     private httpRequestOptionsBuilder?: HttpRequestOptionsBuilder;
     private tasks: Map<string, DownloadTask> = new Map<string, DownloadTask>();
-    private maxWorkerCount: number = 10;
-    private progressTicktockMillis: number = 200;
+    private maxWorkerCount: number = 5;
+    private progressTicktockMillis: number = 1000;
+    private httpTimeout: number = 30000;
+    private retryTimes = 10;
+
 
     public configConfigDir(configDir: string) {
         this.configDir = configDir;
@@ -58,6 +61,16 @@ export default class DownloadTaskGroup {
         return this;
     }
 
+    public configHttpTimeout(httpTimeout: number) {
+        this.httpTimeout = httpTimeout;
+        return this;
+    }
+
+    public configRetryTimes(retryTimes: number) {
+        this.retryTimes = retryTimes;
+        return this;
+    }
+
     public getTasks() {
         const tasks: DownloadTask[] = [];
         this.tasks.forEach((task, key, map) => tasks.push(task));
@@ -75,7 +88,10 @@ export default class DownloadTaskGroup {
     public async newTask(
         downloadUrl: string, storageDir: string, filename: string | undefined, attachment?: any
     ): Promise<DownloadTask> {
-        const {fileInfoDescriptor, progressTicktockMillis, maxWorkerCount, taskIdGenerator, httpRequestOptionsBuilder} = this;
+        const {
+            fileInfoDescriptor, progressTicktockMillis, maxWorkerCount,
+            taskIdGenerator, httpRequestOptionsBuilder, httpTimeout, retryTimes
+        } = this;
         let taskId: string = await taskIdGenerator(downloadUrl, storageDir, filename, attachment);
         let task: DownloadTask | undefined = this.getTask(taskId);
         if (!!task) {
@@ -84,7 +100,7 @@ export default class DownloadTaskGroup {
         // @ts-ignore
         let descriptor = await this.assembly(taskId, downloadUrl, storageDir, filename, attachment, maxWorkerCount);
         task = new DownloadTask(descriptor, {
-            progressTicktockMillis, fileInfoDescriptor, httpRequestOptionsBuilder
+            progressTicktockMillis, fileInfoDescriptor, httpRequestOptionsBuilder, httpTimeout, retryTimes
         }, false)
             .on(DownloadEvent.FINISHED, (finishedTaskDescriptor: FileDescriptor) => {
                 this.tasks.delete(finishedTaskDescriptor.taskId);
@@ -143,7 +159,7 @@ export default class DownloadTaskGroup {
         infoFiles = infoFiles.filter((infoFile) => {
             return infoFile.endsWith(Config.INFO_FILE_EXTENSION);
         });
-        const {fileInfoDescriptor, progressTicktockMillis, httpRequestOptionsBuilder} = this;
+        const {fileInfoDescriptor, progressTicktockMillis, httpRequestOptionsBuilder, httpTimeout, retryTimes} = this;
         for (let i = 0; i < infoFiles.length; i++) {
             try {
                 const infoFile = infoFiles[i];
@@ -152,7 +168,7 @@ export default class DownloadTaskGroup {
                 Logger.debug(`[DownTaskGroup]ConfigFile: ${infoFile}: ${printJson})`);
                 const descriptor = JSON.parse(json);
                 const task = new DownloadTask(descriptor, {
-                    progressTicktockMillis, fileInfoDescriptor, httpRequestOptionsBuilder
+                    progressTicktockMillis, fileInfoDescriptor, httpRequestOptionsBuilder, httpTimeout, retryTimes
                 }, true);
                 this.tasks.set(task.getTaskId(), task);
                 Logger.debug(`[DownTaskGroup]loadInfoFiles: taskId = ${task.getTaskId()}`);

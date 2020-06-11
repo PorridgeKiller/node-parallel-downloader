@@ -167,37 +167,39 @@ export class ErrorMessage {
     public taskId?: string;
     public code: string;
     public message: string;
+    public type: string;
     public error: NodeJS.ErrnoException;
 
-    constructor(code: string, message: string, error: NodeJS.ErrnoException) {
+    constructor(code: string, message: string, type: string, error: NodeJS.ErrnoException) {
         this.code = code;
         this.message = message;
+        this.type = type;
         this.error = error;
     }
 
-    public static fromCustomer(code: string, message: string, error: NodeJS.ErrnoException) {
-        return new ErrorMessage(code, message, error);
+    public static fromCustomer(code: string, message: string, type: string, error: NodeJS.ErrnoException) {
+        return new ErrorMessage(code, message, type, error);
     }
 
     public static fromErrorEnum(errEnum: DownloadErrorEnum, error: NodeJS.ErrnoException) {
         const str = errEnum.toString();
         const strs = str.split('@');
-        return new ErrorMessage(strs[0], strs[1], error);
+        return new ErrorMessage(strs[0], strs[2], strs[1], error);
     }
 }
 
 export enum DownloadErrorEnum {
-    DESCRIBE_FILE_ERROR = '1000@error occurred when fetching file description',
-    REQUEST_TIMEOUT = '1001@request timeout',
-    UNKNOWN_PROTOCOL = '1002@unknown protocol',
-    SERVER_UNAVAILABLE = '1003@server unavailable',
-    CREATE_DOWNLOAD_DIR_ERROR = '1004@failed to create download directory',
-    READ_CHUNK_FILE_ERROR = '1005@failed to read chunk file',
-    WRITE_CHUNK_FILE_ERROR = '1006@failed to write into chunk file',
-    DELETE_CHUNK_FILE_ERROR = '1007@failed to delete chunk file',
-    APPEND_TARGET_FILE_ERROR = '1008@failed to append target file',
-    FAILED_TO_RESUME_TASK = '1009@failed to resume download task',
-    RENAME_MERGED_FILE_ERROR = '1010@failed to rename merged file to target filename',
+    DESCRIBE_FILE_ERROR = '1000@generic@error occurred when fetching file description',
+    REQUEST_TIMEOUT = '1001@retry@request timeout',
+    UNKNOWN_PROTOCOL = '1002@request@unknown protocol',
+    SERVER_UNAVAILABLE = '1003@request@server unavailable',
+    CREATE_DOWNLOAD_DIR_ERROR = '1004@file@failed to create download directory',
+    READ_CHUNK_FILE_ERROR = '1005@file@failed to read chunk file',
+    WRITE_CHUNK_FILE_ERROR = '1006@file@failed to write into chunk file',
+    DELETE_CHUNK_FILE_ERROR = '1007@file@failed to delete chunk file',
+    APPEND_TARGET_FILE_ERROR = '1008@file@failed to append target file',
+    RENAME_MERGED_FILE_ERROR = '1009@file@failed to rename merged file to target filename',
+    FAILED_TO_RESUME_TASK = '1010@task@failed to resume download task',
 }
 
 

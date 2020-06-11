@@ -8,23 +8,25 @@ import * as http from 'http';
 import * as https from 'https';
 import * as FileOperator from './util/FileOperator';
 import {
-    Logger,
-    Config,
+    CommonUtils,
     DownloadErrorEnum,
     DownloadEvent,
     DownloadStatus,
     ErrorMessage,
-    CommonUtils,
     HttpRequestOptionsBuilder,
+    Logger,
 } from './Config';
 import DownloadStatusHolder from './DownloadStatusHolder';
 
 export interface WorkerOptions {
-    httpRequestOptionsBuilder?: HttpRequestOptionsBuilder
+    httpRequestOptionsBuilder?: HttpRequestOptionsBuilder;
+    httpTimeout: number;
+    retryTimes: number;
+    shouldAppendFile: boolean;
 }
 
 export default class DownloadWorker extends DownloadStatusHolder {
-    private downloadDir: string;
+    private storageDir: string;
     private taskId: string;
     private simpleTaskId!: string;
     private index: number;
@@ -37,23 +39,29 @@ export default class DownloadWorker extends DownloadStatusHolder {
     private options: WorkerOptions;
 
     private progress: number = 0;
+    /**
+     * 上一次ticktock时的进度，用来计算速度
+     */
+    private prevProgress: number = 0;
+    private retryTimes: number = 0;
     private req: http.ClientRequest | undefined;
+    private resp: http.IncomingMessage | undefined;
+    private noResponseTime: number = 0;
 
 
-    constructor(taskId: string, downloadDir: string, length: number, contentType: string, index: number,
-                from: number, to: number, progress: number, downloadUrl: string, options: WorkerOptions) {
+    constructor(taskId: string, storageDir: string, length: number, contentType: string, index: number,
+                from: number, to: number, downloadUrl: string, options: WorkerOptions) {
         super();
-        this.downloadDir = downloadDir;
         this.taskId = taskId;
+        this.storageDir = storageDir;
         this.length = length;
         this.contentType = contentType;
         this.index = index;
         this.from = from;
         this.to = to;
-        this.progress = progress;
         this.downloadUrl = downloadUrl;
         this.options = options;
-        this.chunkFilePath = FileOperator.pathJoin(downloadDir, CommonUtils.getChunkFilename(taskId, index));
+        this.chunkFilePath = CommonUtils.getChunkFilePath(taskId, storageDir, index);
         this.tryInit();
     }
 
@@ -66,9 +74,47 @@ export default class DownloadWorker extends DownloadStatusHolder {
         if (flag) {
             this.simpleTaskId = CommonUtils.getSimpleTaskId(this.taskId);
             this.req = undefined;
+            this.progress = 0;
+            this.prevProgress = 0;
             // todo
         }
         return flag;
+    }
+
+    private async prepare(forceAppend: boolean) {
+        let progress;
+        if (forceAppend || this.options.shouldAppendFile) {
+            progress = await this.existsChunkFile() ? await this.getChunkFileSize() : 0;
+        } else {
+            if (await this.existsChunkFile()) {
+                const err = await this.deleteChunkFile();
+                if (err) {
+                    await this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.DELETE_CHUNK_FILE_ERROR, err));
+                }
+            }
+            progress = 0;
+        }
+        this.progress = progress;
+        this.prevProgress = progress;
+        // this.printLog('path:', await this.getChunkFilePath());
+        this.printLog(`<[chunk_${this.index}]Conf(from=${this.from}, to=${this.to}, length=${this.length}) Worker(newFrom=${this.from + progress}, to=${this.to}, remaining=${this.to - progress + 1})>`);
+    }
+
+    public getChunkFilePath() {
+        const {taskId, storageDir, index} = this;
+        return CommonUtils.getChunkFilePath(taskId, storageDir, index);
+    }
+
+    private async existsChunkFile() {
+        return await FileOperator.existsAsync(this.getChunkFilePath(), false);
+    }
+
+    private async deleteChunkFile() {
+        return await FileOperator.deleteFileOrDirAsync(this.getChunkFilePath());
+    }
+
+    private async getChunkFileSize() {
+        return await FileOperator.fileLengthAsync(this.getChunkFilePath());
     }
 
     /**
@@ -76,7 +122,11 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 块任务开始
      */
     public async tryStart(emit: boolean) {
-        return await this.tryResume(emit);
+        const flag = await this.compareAndSwapStatus(DownloadStatus.DOWNLOADING);
+        if (flag) {
+            return await this.tryResume(emit);
+        }
+        return flag;
     }
 
     /**
@@ -84,8 +134,14 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 块任务恢复
      */
     public async tryResume(emit: boolean) {
-        const flag = await this.compareAndSwapStatus(DownloadStatus.DOWNLOADING);
+        const forceAppend = this.getStatus() !== DownloadStatus.INIT;
+        let flag = await this.compareAndSwapStatus(DownloadStatus.DOWNLOADING, true);
         if (flag) {
+            this.noResponseTime = 0;
+            await this.prepare(forceAppend);
+            if (await this.tryMerge(true)) {
+                return true;
+            }
             this.doDownloadRequest();
             emit && this.emit(DownloadEvent.STARTED, this.index);
         }
@@ -126,9 +182,19 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 块任务出错
      */
     public async tryError(emit: boolean, error: ErrorMessage) {
-        const flag = await this.compareAndSwapStatus(DownloadStatus.ERROR);
+        let flag = await this.compareAndSwapStatus(DownloadStatus.ERROR);
         if (flag) {
             this.abortRequest();
+            emit = emit || (error.type === 'retry' && this.retryTimes < this.options.retryTimes);
+            if (error.type === 'retry') {
+                if (this.retryTimes < this.options.retryTimes) {
+                    flag = await this.tryResume(false);
+                    this.retryTimes++;
+                    return flag;
+                } else {
+                    emit = true;
+                }
+            }
             error.taskId = this.taskId;
             emit && this.emit(DownloadEvent.ERROR, this.index, error);
         }
@@ -148,24 +214,42 @@ export default class DownloadWorker extends DownloadStatusHolder {
     }
 
     public async tryMerge(emit: boolean) {
-        const flag = this.compareAndSwapStatus(DownloadStatus.MERGING);
-        if (flag) {
-            emit && this.emit(DownloadEvent.MERGE, this.index);
+        if (this.progress >= this.length) {
+            const flag = this.compareAndSwapStatus(DownloadStatus.MERGING);
+            if (flag) {
+                this.abortRequest();
+                emit && this.emit(DownloadEvent.MERGE, this.index);
+            }
+            return flag;
         }
-        return flag;
+        return false;
     }
 
 
     public getProgress() {
-        return this.progress;
+        const {length, prevProgress, progress} = this;
+        this.prevProgress = progress;
+        if (this.getStatus() === DownloadStatus.DOWNLOADING) {
+            if (prevProgress === progress) {
+                this.noResponseTime += 1000;
+                if (this.noResponseTime >= 10000) {
+                    this.tryError(false, ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT, new Error()));
+                }
+            } else {
+                this.noResponseTime = 0;
+            }
+            Logger.debug(`<chunk-${this.index}: prevProgress=${prevProgress}, progress=${progress}, noResponseTime=${this.noResponseTime}`);
+        }
+        return {
+            length,
+            progress,
+            prevProgress,
+        };
     }
 
-    public updateProgress(newProgress: number) {
+    private updateProgress(newProgress: number) {
         this.progress += newProgress;
-    }
-
-    public resetProgress(progress: number) {
-        this.progress = progress;
+        return this.progress;
     }
 
 
@@ -214,25 +298,34 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * @param req 请求
      */
     private sendRequest(req: http.ClientRequest) {
+        const {httpTimeout} = this.options;
         this.req = req;
         // 不知道为何，实际时长是两倍，15000ms = 实际30s
-        req.setTimeout(30000);
+        // req.setTimeout(httpTimeout);
         req.on('response', async (resp: http.IncomingMessage) => {
+            resp.setTimeout(1, () => {
+                console.error('resp.setTimeout');
+            });
             if (resp.statusCode && resp.statusCode >= 200 && resp.statusCode < 300) {
                 this.handleResponse(resp);
             } else {
                 // @ts-ignore
-                await this.tryError(true, ErrorMessage.fromCustomer(resp.statusCode, resp.statusMessage,
+                await this.tryError(true, ErrorMessage.fromCustomer(resp.statusCode, resp.statusMessage, 'generic',
                     new Error(`httpStatusCode = ${resp.statusCode}`)));
             }
         });
         req.on('timeout', (err: any) => {
+            req.abort();
+            console.log('timeout', this.retryTimes, err);
+
             this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT, err));
         });
         req.on('error', (err) => {
+            req.abort();
             this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.SERVER_UNAVAILABLE, err));
         });
         req.on('close', () => {
+            req.abort();
             // this.printLog('-> response closed');
         });
         req.on('abort', () => {
@@ -245,13 +338,21 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 废弃当前请求
      */
     private abortRequest() {
-        const {req} = this;
-        req && req.abort();
+        const {req, resp} = this;
+        if (req) {
+            req.abort();
+            req.destroy();
+        }
         this.req = undefined;
+        if (resp) {
+            resp.destroy();
+        }
+        this.resp = undefined;
     }
 
 
     private handleResponse(resp: http.IncomingMessage) {
+        this.resp = resp;
         const {chunkFilePath} = this;
         const responseHeaders = resp.headers;
         // 创建块文件输出流
@@ -274,7 +375,16 @@ export default class DownloadWorker extends DownloadStatusHolder {
             stream.write(dataBytes, (err: any) => {
                 if (!err) {
                     // 正常
-                    this.updateProgress(dataBytes.length);
+                    if (this.updateProgress(dataBytes.length) >= this.length) {
+                        stream.close();
+                        this.printLog(`-> response end while status @${this.getStatus()}`);
+                        if (this.getStatus() === DownloadStatus.DOWNLOADING) {
+                            Logger.debug('-> response end:', this.index, this.progress);
+                            this.tryMerge(true);
+                        } else {
+                            // 因为其它而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
+                        }
+                    }
                 } else {
                     this.tryError(
                         true,
@@ -285,13 +395,21 @@ export default class DownloadWorker extends DownloadStatusHolder {
         });
         resp.on('end', async () => {
             this.req = undefined;
-            stream.close();
-            this.printLog(`-> response end while status @${this.getStatus()}`);
-            if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOPPED) {
-                // 因为错误而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
-            } else {
-                await this.tryMerge(true);
-            }
+            // stream.close();
+            // this.printLog(`-> response end while status @${this.getStatus()}`);
+            // if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOPPED || this.getStatus() === DownloadStatus.CANCELED) {
+            //     // 因为错误而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
+            // } else {
+            //     Logger.debug('-> response end:', this.index, this.progress);
+            //     await this.tryMerge(true);
+            //     // this.tryError(
+            //     //     true,
+            //     //     ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT, new Error())
+            //     // );
+            // }
+        });
+        resp.on('error', () => {
+            console.log('resp.error:', resp);
         });
     }
 
