@@ -76,45 +76,10 @@ export default class DownloadWorker extends DownloadStatusHolder {
             this.req = undefined;
             this.progress = 0;
             this.prevProgress = 0;
+            this.noResponseTime = 0;
             // todo
         }
         return flag;
-    }
-
-    private async prepare(forceAppend: boolean) {
-        let progress;
-        if (forceAppend || this.options.shouldAppendFile) {
-            progress = await this.existsChunkFile() ? await this.getChunkFileSize() : 0;
-        } else {
-            if (await this.existsChunkFile()) {
-                const err = await this.deleteChunkFile();
-                if (err) {
-                    await this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.DELETE_CHUNK_FILE_ERROR, err));
-                }
-            }
-            progress = 0;
-        }
-        this.progress = progress;
-        this.prevProgress = progress;
-        // this.printLog('path:', await this.getChunkFilePath());
-        this.printLog(`<[chunk_${this.index}]Conf(from=${this.from}, to=${this.to}, length=${this.length}) Worker(newFrom=${this.from + progress}, to=${this.to}, remaining=${this.to - progress + 1})>`);
-    }
-
-    public getChunkFilePath() {
-        const {taskId, storageDir, index} = this;
-        return CommonUtils.getChunkFilePath(taskId, storageDir, index);
-    }
-
-    private async existsChunkFile() {
-        return await FileOperator.existsAsync(this.getChunkFilePath(), false);
-    }
-
-    private async deleteChunkFile() {
-        return await FileOperator.deleteFileOrDirAsync(this.getChunkFilePath());
-    }
-
-    private async getChunkFileSize() {
-        return await FileOperator.fileLengthAsync(this.getChunkFilePath());
     }
 
     /**
@@ -137,7 +102,6 @@ export default class DownloadWorker extends DownloadStatusHolder {
         const forceAppend = this.getStatus() !== DownloadStatus.INIT;
         let flag = await this.compareAndSwapStatus(DownloadStatus.DOWNLOADING, true);
         if (flag) {
-            this.noResponseTime = 0;
             await this.prepare(forceAppend);
             if (await this.tryMerge(true)) {
                 return true;
@@ -169,8 +133,8 @@ export default class DownloadWorker extends DownloadStatusHolder {
         const flag = this.compareAndSwapStatus(DownloadStatus.CANCELED);
         if (flag) {
             this.abortRequest();
-            if (FileOperator.existsAsync(this.chunkFilePath, false)) {
-                await FileOperator.deleteFileOrDirAsync(this.chunkFilePath);
+            if (await FileOperator.existsAsync(this.getChunkFilePath(), false)) {
+                await FileOperator.deleteFileOrDirAsync(this.getChunkFilePath());
             }
             emit && this.emit(DownloadEvent.CANCELED, this.index);
         }
@@ -190,6 +154,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
                 if (this.retryTimes < this.options.retryTimes) {
                     flag = await this.tryResume(false);
                     this.retryTimes++;
+                    Logger.warn(`error occurred but retry ${this.retryTimes}: ${JSON.stringify(error)}`);
                     return flag;
                 } else {
                     emit = true;
@@ -225,34 +190,47 @@ export default class DownloadWorker extends DownloadStatusHolder {
         return false;
     }
 
-
-    public getProgress() {
-        const {length, prevProgress, progress} = this;
-        this.prevProgress = progress;
-        if (this.getStatus() === DownloadStatus.DOWNLOADING) {
-            if (prevProgress === progress) {
-                this.noResponseTime += 1000;
-                if (this.noResponseTime >= 10000) {
-                    this.tryError(false, ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT, new Error()));
+    private async prepare(forceAppend: boolean) {
+        let progress;
+        if (forceAppend || this.options.shouldAppendFile) {
+            progress = await this.existsChunkFile() ? await this.getChunkFileSize() : 0;
+        } else {
+            if (await this.existsChunkFile()) {
+                const err = await this.deleteChunkFile();
+                if (err) {
+                    await this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.DELETE_CHUNK_FILE_ERROR, err));
                 }
-            } else {
-                this.noResponseTime = 0;
             }
-            Logger.debug(`<chunk-${this.index}: prevProgress=${prevProgress}, progress=${progress}, noResponseTime=${this.noResponseTime}`);
+            progress = 0;
         }
-        return {
-            length,
-            progress,
-            prevProgress,
-        };
+        this.noResponseTime = 0;
+        this.progress = progress;
+        this.prevProgress = progress;
+        // this.printLog('path:', await this.getChunkFilePath());
+        this.printLog(`<[chunk_${this.index}]Conf(from=${this.from}, to=${this.to}, length=${this.length}) Worker(newFrom=${this.from + progress}, to=${this.to}, remaining=${this.to - progress + 1})>`);
     }
 
-    private updateProgress(newProgress: number) {
-        this.progress += newProgress;
-        return this.progress;
+    public getChunkFilePath() {
+        const {taskId, storageDir, index} = this;
+        return CommonUtils.getChunkFilePath(taskId, storageDir, index);
+    }
+
+    private async existsChunkFile() {
+        return await FileOperator.existsAsync(this.getChunkFilePath(), false);
+    }
+
+    private async deleteChunkFile() {
+        return await FileOperator.deleteFileOrDirAsync(this.getChunkFilePath());
+    }
+
+    private async getChunkFileSize() {
+        return await FileOperator.fileLengthAsync(this.getChunkFilePath());
     }
 
 
+    /**
+     * 执行HTTP请求
+     */
     private doDownloadRequest() {
         const {taskId, downloadUrl, index, from, to, progress, length, contentType, options} = this;
         const parsedUrl = url.parse(downloadUrl);
@@ -301,11 +279,8 @@ export default class DownloadWorker extends DownloadStatusHolder {
         const {httpTimeout} = this.options;
         this.req = req;
         // 不知道为何，实际时长是两倍，15000ms = 实际30s
-        // req.setTimeout(httpTimeout);
+        req.setTimeout(httpTimeout);
         req.on('response', async (resp: http.IncomingMessage) => {
-            resp.setTimeout(1, () => {
-                console.error('resp.setTimeout');
-            });
             if (resp.statusCode && resp.statusCode >= 200 && resp.statusCode < 300) {
                 this.handleResponse(resp);
             } else {
@@ -316,8 +291,6 @@ export default class DownloadWorker extends DownloadStatusHolder {
         });
         req.on('timeout', (err: any) => {
             req.abort();
-            console.log('timeout', this.retryTimes, err);
-
             this.tryError(true, ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT, err));
         });
         req.on('error', (err) => {
@@ -328,11 +301,59 @@ export default class DownloadWorker extends DownloadStatusHolder {
             req.abort();
             // this.printLog('-> response closed');
         });
-        req.on('abort', () => {
-            // this.printLog('-> response abort');
-        });
         req.end();
     }
+
+    /**
+     * 处理响应
+     * @param resp
+     */
+    private handleResponse(resp: http.IncomingMessage) {
+        this.resp = resp;
+        const {chunkFilePath} = this;
+        const responseHeaders = resp.headers;
+        // 创建块文件输出流
+        let stream: FileOperator.WriteStream;
+        if (this.isResume()) {
+            stream = FileOperator.openAppendStream(chunkFilePath);
+        } else {
+            stream = FileOperator.openWriteStream(chunkFilePath);
+        }
+        resp.on('data', (dataBytes: any) => {
+            if (!this.canWriteFile() || !stream.writable) {
+                stream.close();
+                this.abortRequest();
+                return;
+            }
+            /**
+             * ******************** 此处不可以使用 ********************
+             * fs.appendFile(chunkFilePath, dataBytes, cb) 或者 fs.appendFileSync(chunkFilePath, chunk)
+             * 前者高频调用fs.appendFile会抛出异常: EMFILE: too many open files
+             * 后者在写入过程中会导致整个nodejs进程假死, 界面不可操作
+             */
+            stream.write(dataBytes, (err: any) => {
+                if (err) {
+                    stream.close();
+                    this.tryError(
+                        true,
+                        ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR, err)
+                    );
+                } else {
+                    // 正常
+                    if (this.updateProgress(dataBytes.length) >= this.length) {
+                        // 进度已经100%
+                        stream.close();
+                        this.printLog(`-> response end while status @${this.getStatus()}`);
+                        // 因为其它而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
+                        if (this.getStatus() === DownloadStatus.DOWNLOADING) {
+                            this.tryMerge(true);
+                        }
+                    }
+                }
+            });
+        });
+    }
+
 
     /**
      * 废弃当前请求
@@ -350,68 +371,34 @@ export default class DownloadWorker extends DownloadStatusHolder {
         this.resp = undefined;
     }
 
-
-    private handleResponse(resp: http.IncomingMessage) {
-        this.resp = resp;
-        const {chunkFilePath} = this;
-        const responseHeaders = resp.headers;
-        // 创建块文件输出流
-        let stream: FileOperator.WriteStream;
-        if (this.isResume()) {
-            stream = FileOperator.openAppendStream(chunkFilePath);
-        } else {
-            stream = FileOperator.openWriteStream(chunkFilePath);
-        }
-        resp.on('data', (dataBytes: any) => {
-            if (!this.canWriteFile()) {
-                return;
-            }
-            /**
-             * ******************** 此处不可以使用 ********************
-             * fs.appendFile(chunkFilePath, dataBytes, cb) 或者 fs.appendFileSync(chunkFilePath, chunk)
-             * 前者高频调用fs.appendFile会抛出异常: EMFILE: too many open files
-             * 后者在写入过程中会导致整个nodejs进程假死, 界面不可操作
-             */
-            stream.write(dataBytes, (err: any) => {
-                if (!err) {
-                    // 正常
-                    if (this.updateProgress(dataBytes.length) >= this.length) {
-                        stream.close();
-                        this.printLog(`-> response end while status @${this.getStatus()}`);
-                        if (this.getStatus() === DownloadStatus.DOWNLOADING) {
-                            Logger.debug('-> response end:', this.index, this.progress);
-                            this.tryMerge(true);
-                        } else {
-                            // 因为其它而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
-                        }
-                    }
-                } else {
-                    this.tryError(
-                        true,
-                        ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR, err)
-                    );
+    public getProgress(ticktock: number) {
+        const {index, length, prevProgress, progress, noResponseTime, options} = this;
+        this.prevProgress = progress;
+        if (this.getStatus() === DownloadStatus.DOWNLOADING) {
+            if (prevProgress === progress) {
+                this.noResponseTime += ticktock;
+                if (this.noResponseTime >= options.httpTimeout) {
+                    this.tryError(false, ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT, new Error()));
                 }
-            });
-        });
-        resp.on('end', async () => {
-            this.req = undefined;
-            // stream.close();
-            // this.printLog(`-> response end while status @${this.getStatus()}`);
-            // if (this.getStatus() === DownloadStatus.ERROR || this.getStatus() === DownloadStatus.STOPPED || this.getStatus() === DownloadStatus.CANCELED) {
-            //     // 因为错误而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
-            // } else {
-            //     Logger.debug('-> response end:', this.index, this.progress);
-            //     await this.tryMerge(true);
-            //     // this.tryError(
-            //     //     true,
-            //     //     ErrorMessage.fromErrorEnum(DownloadErrorEnum.REQUEST_TIMEOUT, new Error())
-            //     // );
-            // }
-        });
-        resp.on('error', () => {
-            console.log('resp.error:', resp);
-        });
+            } else {
+                this.noResponseTime = 0;
+            }
+        }
+        return {
+            index,
+            length,
+            progress,
+            prevProgress,
+            noResp: noResponseTime,
+            retry: this.retryTimes,
+        };
     }
+
+    private updateProgress(newProgress: number) {
+        this.progress += newProgress;
+        return this.progress;
+    }
+
 
     public isResume() {
         return this.length > 0;

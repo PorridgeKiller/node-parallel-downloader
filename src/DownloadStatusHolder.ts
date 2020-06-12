@@ -68,7 +68,8 @@ export default class DownloadStatusHolder extends EventEmitter {
                 return false;
             }
         } else if (nextStatus === DownloadStatus.MERGING) {
-            if (prevStatus === DownloadStatus.FINISHED ||
+            if (prevStatus === DownloadStatus.RENAMING ||
+                prevStatus === DownloadStatus.FINISHED ||
                 prevStatus === DownloadStatus.CANCELED) {
                 return false;
             }

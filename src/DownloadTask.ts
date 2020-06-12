@@ -219,7 +219,6 @@ export default class DownloadTask extends DownloadStatusHolder {
                     if (i === chunkIndex) {
                         continue;
                     }
-                    console.log('callby: ' + chunkIndex, '; invoke: ' + i);
                     await worker.tryError(false, error);
                 }
             }
@@ -331,23 +330,17 @@ export default class DownloadTask extends DownloadStatusHolder {
         let prevProgress = 0;
         const chunks: any[] = [];
         this.workers && this.workers.forEach((worker) => {
-            const p = worker.getProgress();
-            const speed = Math.round(p.progress - p.prevProgress / (progressTicktockMillis / 1000)) / 1000 + 'kb/s';
-            chunks.push({
-                percent: Math.round((p.progress / p.length) * 10000) / 100 + '%',
-                speed
-            });
-            progress += p.progress;
-            prevProgress += p.prevProgress;
+            const chunk = worker.getProgress(progressTicktockMillis);
+            progress += chunk.progress;
+            prevProgress += chunk.prevProgress;
+            chunks.push(chunk);
         });
-        // bytes/s
-        const speed = Math.round((progress - prevProgress) / (progressTicktockMillis / 1000));
         return {
-            contentLength: this.descriptor.contentLength,
+            length: this.descriptor.contentLength,
             progress,
+            prevProgress,
             // ms
             ticktock: progressTicktockMillis,
-            speed,
             chunks,
         };
     }
@@ -523,7 +516,6 @@ export default class DownloadTask extends DownloadStatusHolder {
     }
 
 
-
     /**
      * 合并所有块文件
      */
@@ -543,7 +535,6 @@ export default class DownloadTask extends DownloadStatusHolder {
         }
         writeStream.close();
         this.printLog(`merged: {filename=${firstChunkFilePath}, length=${await FileOperator.fileLengthAsync(firstChunkFilePath)}, expect_length=${descriptor.contentLength}`);
-
     }
 
     private async deleteInfoFile() {
@@ -581,9 +572,6 @@ export default class DownloadTask extends DownloadStatusHolder {
             });
             readStream.on('end', async () => {
                 readStream.close();
-                // await FileOperator.deleteFileOrDirAsync(chunkFile.path).catch((e) => {
-                //     Logger.error(e);
-                // });
                 resolve(true);
             });
             readStream.on('error', (err) => {
@@ -602,10 +590,6 @@ export default class DownloadTask extends DownloadStatusHolder {
             return false;
         }
         return true;
-    }
-
-    private printLog(...args: any[]) {
-        Logger.debug(`[DownTask-${this.simpleTaskId}]`, ...args);
     }
 
     /**
@@ -631,5 +615,10 @@ export default class DownloadTask extends DownloadStatusHolder {
             `You'd better not do any status change operation in [callback] functions!`
         );
         return false;
+    }
+
+
+    private printLog(...args: any[]) {
+        Logger.debug(`[DownTask-${this.simpleTaskId}]`, ...args);
     }
 }

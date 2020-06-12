@@ -192,7 +192,7 @@ export enum DownloadErrorEnum {
     DESCRIBE_FILE_ERROR = '1000@generic@error occurred when fetching file description',
     REQUEST_TIMEOUT = '1001@retry@request timeout',
     UNKNOWN_PROTOCOL = '1002@request@unknown protocol',
-    SERVER_UNAVAILABLE = '1003@request@server unavailable',
+    SERVER_UNAVAILABLE = '1003@retry@server unavailable',
     CREATE_DOWNLOAD_DIR_ERROR = '1004@file@failed to create download directory',
     READ_CHUNK_FILE_ERROR = '1005@file@failed to read chunk file',
     WRITE_CHUNK_FILE_ERROR = '1006@file@failed to write into chunk file',

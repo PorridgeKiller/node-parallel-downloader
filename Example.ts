@@ -7,6 +7,7 @@ import {
     FileDescriptor,
     Logger,
     requestMethodHeadFileInformationDescriptor,
+    CommonUtils,
 } from './lib/Config';
 import http from 'http';
 import crypto from 'crypto';
@@ -31,7 +32,7 @@ async function example(): Promise<DownloadTask> {
     const taskGroup = await new DownloadTaskGroup()
         .configConfigDir('./temp_info')
         .configMaxWorkerCount(3)
-        .configProgressTicktockMillis(1000)
+        .configProgressTicktockMillis(300)
         .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename?: string) => {
             return crypto.createHash('md5').update(downloadUrl).digest('hex');
         })
@@ -39,12 +40,12 @@ async function example(): Promise<DownloadTask> {
         .configHttpRequestOptionsBuilder((requestOptions: http.RequestOptions, taskId: string, index: number, from: number, to: number, progress: number) => {
             return requestOptions;
         })
-        .configRetryTimes(100)
-        .configHttpTimeout(30000)
+        .configRetryTimes(10000)
+        .configHttpTimeout(5000)
         .loadFromConfigDir();
 
     const task: DownloadTask = await taskGroup.newTask(
-        'https://a24.gdl.netease.com/Terminal.7z',
+        'https://a24.gdl.netease.com/2002061611_04022020_SV_Netrvios_198512.zip',
         'temp_repo',
         undefined
     );
@@ -56,10 +57,17 @@ async function example(): Promise<DownloadTask> {
     }).on(DownloadEvent.STOPPED, (descriptor) => {
         Logger.debug('+++DownloadEvent.STOPPED:', task.getStatus());
     }).on(DownloadEvent.PROGRESS, (descriptor, progress) => {
-        const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
-        const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
-        const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
-        Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`, task.getStatus(), JSON.stringify(progress));
+        const ticktock = progress.ticktock;
+        const beautified = CommonUtils.beautifyProgress(progress, ticktock);
+        const chunks: any[] = [];
+        progress.chunks.forEach((chunkProgress: any) => {
+            const beautifiedChunk = CommonUtils.beautifyProgress(chunkProgress, ticktock);
+            beautifiedChunk.noResp = chunkProgress.noResponseTime;
+            beautifiedChunk.retry = chunkProgress.retry;
+            chunks.push(beautifiedChunk);
+        });
+        beautified.chunks = chunks;
+        Logger.debug('+++DownloadEvent.PROGRESS:', JSON.stringify(beautified));
     }).on(DownloadEvent.MERGE, (descriptor) => {
         Logger.debug('+++DownloadEvent.MERGE:', descriptor, task.getStatus());
     }).on(DownloadEvent.FINISHED, (descriptor) => {
@@ -97,6 +105,42 @@ async function example(): Promise<DownloadTask> {
     // const started2 = await task2.start();
     // Logger.assert(started2);
 
+    const task2: DownloadTask = await taskGroup.newTask(
+        'https://a24.gdl.netease.com/1903091457_08232019_BC_Netease_177824.zip',
+        'temp_repo',
+        undefined
+    );
+
+    task2.on(DownloadEvent.INITIALIZED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.INITIALIZED:', task2.getStatus(), '任务创建直到完成, 只会调用一次');
+    }).on(DownloadEvent.STARTED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.STARTED:', task2.getStatus());
+    }).on(DownloadEvent.STOPPED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.STOPPED:', task2.getStatus());
+    }).on(DownloadEvent.PROGRESS, (descriptor, progress) => {
+        const ticktock = progress.ticktock;
+        const beautified = CommonUtils.beautifyProgress(progress, ticktock);
+        const chunks: any[] = [];
+        progress.chunks.forEach((chunkProgress: any) => {
+            const beautifiedChunk = CommonUtils.beautifyProgress(chunkProgress, ticktock);
+            beautifiedChunk.noResp = chunkProgress.noResponseTime;
+            beautifiedChunk.retry = chunkProgress.retry;
+            chunks.push(beautifiedChunk);
+        });
+        beautified.chunks = chunks;
+        Logger.debug('+++DownloadEvent.PROGRESS:', JSON.stringify(beautified));
+    }).on(DownloadEvent.MERGE, (descriptor) => {
+        Logger.debug('+++DownloadEvent.MERGE:', descriptor, task2.getStatus());
+    }).on(DownloadEvent.FINISHED, (descriptor) => {
+        Logger.debug('+++DownloadEvent.FINISHED:', descriptor, task2.getStatus());
+    }).on(DownloadEvent.ERROR, (descriptor, errorMessage) => {
+        Logger.error('+++DownloadEvent.ERROR:', descriptor, errorMessage, task2.getStatus());
+    }).on(DownloadEvent.CANCELED, (descriptor) => {
+        Logger.warn('+++DownloadEvent.CANCELED:', descriptor, task2.getStatus());
+    });
+    const started2 = await task2.start();
+    Logger.assert(started2);
+
     return task;
 }
 
@@ -130,7 +174,7 @@ async function loopStopStart(task: DownloadTask, count: number) {
             }
             Logger.debug(`loopStopStart-${count}`, task.getStatus());
             resolve();
-        }, 200);
+        }, 500);
     });
 }
 
