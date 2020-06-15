@@ -32,7 +32,7 @@ async function example(): Promise<DownloadTask> {
     const taskGroup = await new DownloadTaskGroup()
         .configConfigDir('./temp_info')
         .configMaxWorkerCount(3)
-        .configProgressTicktockMillis(300)
+        .configProgressTicktockMillis(150)
         .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename?: string) => {
             return crypto.createHash('md5').update(downloadUrl).digest('hex');
         })
@@ -41,13 +41,13 @@ async function example(): Promise<DownloadTask> {
             return requestOptions;
         })
         .configRetryTimes(10000)
-        .configHttpTimeout(5000)
+        .configHttpTimeout(30000)
         .loadFromConfigDir();
 
     const task: DownloadTask = await taskGroup.newTask(
-        'https://a24.gdl.netease.com/2002061611_04022020_SV_Netrvios_198512.zip',
+        'https://a24.gdl.netease.com/Terminal.7z',
         'temp_repo',
-        undefined
+        'Terminal.7z'
     );
 
     task.on(DownloadEvent.INITIALIZED, (descriptor) => {
@@ -62,7 +62,7 @@ async function example(): Promise<DownloadTask> {
         const chunks: any[] = [];
         progress.chunks.forEach((chunkProgress: any) => {
             const beautifiedChunk = CommonUtils.beautifyProgress(chunkProgress, ticktock);
-            beautifiedChunk.noResp = chunkProgress.noResponseTime;
+            beautifiedChunk.noResp = chunkProgress.noResp;
             beautifiedChunk.retry = chunkProgress.retry;
             chunks.push(beautifiedChunk);
         });
@@ -81,32 +81,8 @@ async function example(): Promise<DownloadTask> {
     Logger.assert(started);
 
 
-    // const task2: DownloadTask = await taskGroup.newTask(
-    //     'http://download.redis.io/releases/redis-5.0.8.tar.gz',
-    //     'temp_repo',
-    //     undefined
-    // );
-    // task2.on(DownloadEvent.STARTED, (descriptor) => {
-    //     Logger.debug('+++DownloadEvent.STARTED:', task2.getStatus());
-    // }).on(DownloadEvent.PROGRESS, (descriptor, progress) => {
-    //     const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
-    //     const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
-    //     const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
-    //     Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`, task2.getStatus(), JSON.stringify(progress));
-    // }).on(DownloadEvent.MERGE, (descriptor) => {
-    //     Logger.debug('+++DownloadEvent.MERGE:', descriptor, task2.getStatus());
-    // }).on(DownloadEvent.FINISHED, (descriptor) => {
-    //     Logger.debug('+++DownloadEvent.FINISHED:', descriptor, task2.getStatus());
-    // }).on(DownloadEvent.ERROR, (descriptor, errorMessage) => {
-    //     Logger.error('+++DownloadEvent.ERROR:', descriptor, errorMessage, task2.getStatus());
-    // }).on(DownloadEvent.CANCELED, (descriptor) => {
-    //     Logger.warn('+++DownloadEvent.CANCELED:', descriptor, task2.getStatus());
-    // });
-    // const started2 = await task2.start();
-    // Logger.assert(started2);
-
     const task2: DownloadTask = await taskGroup.newTask(
-        'https://a24.gdl.netease.com/1903091457_08232019_BC_Netease_177824.zip',
+        'http://download.redis.io/releases/redis-5.0.8.tar.gz',
         'temp_repo',
         undefined
     );
@@ -174,7 +150,7 @@ async function loopStopStart(task: DownloadTask, count: number) {
             }
             Logger.debug(`loopStopStart-${count}`, task.getStatus());
             resolve();
-        }, 500);
+        }, 200);
     });
 }
 

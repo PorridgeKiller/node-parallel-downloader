@@ -1,6 +1,6 @@
 {
   "name": "node-parallel-downloader",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "A parallel downloader implemented by Nodejs",
   "main": "lib/Config.js",
   "types": "lib/Config.d.ts",
@@ -11,7 +11,9 @@
     "buildAndStrictTest": "tsc && npm run stricttest",
     "dev": "ts-node Test.ts",
     "example": "ts-node Example.ts --example",
-    "stricttest": "ts-node Example.ts --strict-test"
+    "stricttest": "ts-node Example.ts --strict-test",
+    "example-local": "ts-node Example.ts --example",
+    "stricttest-local": "ts-node Example.ts --strict-test"
   },
   "keywords": [
     "js",

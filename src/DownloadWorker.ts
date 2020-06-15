@@ -47,6 +47,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
     private req: http.ClientRequest | undefined;
     private resp: http.IncomingMessage | undefined;
     private noResponseTime: number = 0;
+    private writeStream?: FileOperator.WriteStream;
 
 
     constructor(taskId: string, storageDir: string, length: number, contentType: string, index: number,
@@ -319,9 +320,9 @@ export default class DownloadWorker extends DownloadStatusHolder {
         } else {
             stream = FileOperator.openWriteStream(chunkFilePath);
         }
+        this.writeStream = stream;
         resp.on('data', (dataBytes: any) => {
             if (!this.canWriteFile() || !stream.writable) {
-                stream.close();
                 this.abortRequest();
                 return;
             }
@@ -342,7 +343,6 @@ export default class DownloadWorker extends DownloadStatusHolder {
                     // 正常
                     if (this.updateProgress(dataBytes.length) >= this.length) {
                         // 进度已经100%
-                        stream.close();
                         this.printLog(`-> response end while status @${this.getStatus()}`);
                         // 因为其它而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
                         if (this.getStatus() === DownloadStatus.DOWNLOADING) {
@@ -359,7 +359,11 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 废弃当前请求
      */
     private abortRequest() {
-        const {req, resp} = this;
+        const {req, resp, writeStream} = this;
+        if (writeStream) {
+            writeStream.close();
+            this.writeStream = undefined;
+        }
         if (req) {
             req.abort();
             req.destroy();
