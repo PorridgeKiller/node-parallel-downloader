@@ -141,6 +141,7 @@ export const Config = {
 
 export enum DownloadStatus {
     INIT = 'INIT',
+    STARTED = 'STARTED',
     DOWNLOADING = 'DOWNLOADING',
     STOPPED = 'STOPPED',
     MERGING = 'MERGING',
@@ -154,11 +155,12 @@ export enum DownloadStatus {
 export enum DownloadEvent {
     INITIALIZED = 'INITIALIZED',
     STARTED = 'STARTED',
+    DOWNLOADING = 'DOWNLOADING',
+    PROGRESS = 'PROGRESS',
     STOPPED = 'STOPPED',
     MERGE = 'MERGE',
     FINISHED = 'FINISHED',
     CANCELED = 'CANCELED',
-    PROGRESS = 'PROGRESS',
     ERROR = 'ERROR',
 }
 
@@ -189,6 +191,7 @@ export class ErrorMessage {
 }
 
 export enum DownloadErrorEnum {
+    SYSTEM_ERROR = '9999@generic@system error',
     DESCRIBE_FILE_ERROR = '1000@generic@error occurred when fetching file description',
     REQUEST_TIMEOUT = '1001@retry@request timeout',
     UNKNOWN_PROTOCOL = '1002@request@unknown protocol',
@@ -200,6 +203,7 @@ export enum DownloadErrorEnum {
     APPEND_TARGET_FILE_ERROR = '1008@file@failed to append target file',
     RENAME_MERGED_FILE_ERROR = '1009@file@failed to rename merged file to target filename',
     FAILED_TO_RESUME_TASK = '1010@task@failed to resume download task',
+    NO_SPACE_LEFT_ON_DEVICE = '1011@fatal@no space left on device',
 }
 
 

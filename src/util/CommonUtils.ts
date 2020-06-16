@@ -48,7 +48,6 @@ export function beautifyFileSize(size: number) {
         }
     }
     return `${(k).toFixed(2)}${units[index]}`;
-    // return '-';
 }
 
 export function calculateProgress(progress: any, ticktock: number) {
@@ -71,4 +70,17 @@ export function beautifyProgress(progress: any, ticktock: number) {
     result.percent = (calculated.percent * 100).toFixed(2) + '%';
     result.progress = beautifyFileSize(progress.progress);
     return result;
+}
+
+export function beautifyProgressWithChunks(progress: any, ticktock: number) {
+    const beautifiedProgress = beautifyProgress(progress, ticktock);
+    const chunks: any[] = [];
+    progress.chunks.forEach((chunkProgress: any) => {
+        const beautifiedChunk = beautifyProgress(chunkProgress, ticktock);
+        beautifiedChunk.noResp = chunkProgress.noResp;
+        beautifiedChunk.retry = chunkProgress.retry;
+        chunks.push(beautifiedChunk);
+    });
+    beautifiedProgress.chunks = chunks;
+    return beautifiedProgress;
 }

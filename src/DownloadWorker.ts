@@ -88,8 +88,10 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 块任务开始
      */
     public async tryStart(emit: boolean) {
-        const flag = await this.compareAndSwapStatus(DownloadStatus.DOWNLOADING);
+        const flag = await this.compareAndSwapStatus(DownloadStatus.STARTED);
         if (flag) {
+            this.retryTimes = 0;
+            emit && this.emit(DownloadEvent.STARTED, this.index);
             return await this.tryResume(emit);
         }
         return flag;
@@ -108,7 +110,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
                 return true;
             }
             this.doDownloadRequest();
-            emit && this.emit(DownloadEvent.STARTED, this.index);
+            emit && this.emit(DownloadEvent.DOWNLOADING, this.index);
         }
         return flag;
     }
@@ -207,7 +209,6 @@ export default class DownloadWorker extends DownloadStatusHolder {
         this.noResponseTime = 0;
         this.progress = progress;
         this.prevProgress = progress;
-        // this.printLog('path:', await this.getChunkFilePath());
         this.printLog(`<[chunk_${this.index}]Conf(from=${this.from}, to=${this.to}, length=${this.length}) Worker(newFrom=${this.from + progress}, to=${this.to}, remaining=${this.to - progress + 1})>`);
     }
 
@@ -312,7 +313,6 @@ export default class DownloadWorker extends DownloadStatusHolder {
     private handleResponse(resp: http.IncomingMessage) {
         this.resp = resp;
         const {chunkFilePath} = this;
-        const responseHeaders = resp.headers;
         // 创建块文件输出流
         let stream: FileOperator.WriteStream;
         if (this.isResume()) {

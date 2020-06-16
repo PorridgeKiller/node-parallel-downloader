@@ -63,7 +63,6 @@ export default class DownloadTask extends DownloadStatusHolder {
         this.tryInit();
     }
 
-
     public getTaskId() {
         return this.descriptor.taskId;
     }
@@ -94,7 +93,7 @@ export default class DownloadTask extends DownloadStatusHolder {
      */
     public async start(): Promise<boolean> {
         const prevStatus = this.getStatus();
-        const expectStatus = DownloadStatus.DOWNLOADING;
+        const expectStatus = DownloadStatus.STARTED;
         const flag = this.compareAndSwapStatus(expectStatus);
         if (flag) {
             const {descriptor, isFromConfigFile} = this;
@@ -113,12 +112,13 @@ export default class DownloadTask extends DownloadStatusHolder {
                 if (!d) {
                     return;
                 }
+                this.emitEvent(expectStatus, DownloadEvent.STARTED);
                 shouldAppendFile = shouldAppendFile && this.isResume();
                 // todo 知道了文件的类型&尺寸
                 // 1. 创建download workers, 并加入任务池
                 this.workers = await this.dispatchForWorkers(d, shouldAppendFile);
                 // 2. 开始所有的workers
-                this.tryResume(true).catch((e) => {
+                this.tryResume().catch((e) => {
                     Logger.error(e);
                     this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.FAILED_TO_RESUME_TASK, e))
                 });
@@ -130,13 +130,13 @@ export default class DownloadTask extends DownloadStatusHolder {
     /**
      * 尝试状态设置为DownloadStatus.DOWNLOADING，并启动workers
      */
-    private async tryResume(reentrant?: boolean) {
+    private async tryResume() {
         if (await this.tryMerge()) {
             // 开始前再判断一下是不是所有块已经下载完, 如果已经下载完毕，直接合并，就不用再启动worker
             return true;
         }
         const expectStatus = DownloadStatus.DOWNLOADING;
-        const flag = this.compareAndSwapStatus(expectStatus, reentrant);
+        const flag = this.compareAndSwapStatus(expectStatus);
         if (flag) {
             const {workers} = this;
             if (workers) {
@@ -146,7 +146,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                 }
                 this.startProgressTicktockLooper();
             }
-            this.emitEvent(expectStatus, DownloadEvent.STARTED);
+            this.emitEvent(expectStatus, DownloadEvent.DOWNLOADING);
             this.emitEvent(expectStatus, DownloadEvent.PROGRESS, this.computeCurrentProcess());
         }
         return flag;
@@ -280,7 +280,6 @@ export default class DownloadTask extends DownloadStatusHolder {
             const expectStatus = DownloadStatus.MERGING;
             const flag = this.compareAndSwapStatus(expectStatus);
             if (flag) {
-                this.emitEvent(DownloadStatus.MERGING, DownloadEvent.PROGRESS, this.computeCurrentProcess());
                 this.stopProgressTicktockLooper();
                 if (!await this.canRenameMergedFile()) {
                     this.emitEvent(expectStatus, DownloadEvent.MERGE);
@@ -410,7 +409,7 @@ export default class DownloadTask extends DownloadStatusHolder {
         const content = JSON.stringify(descriptor, null, 4);
         this.printLog(`describeAndDivide-computed: ${JSON.stringify(descriptor.computed)}`);
         await FileOperator.writeFileAsync(infoFile, content);
-        this.emitEvent(DownloadStatus.DOWNLOADING, DownloadEvent.INITIALIZED);
+        this.emitEvent(DownloadStatus.STARTED, DownloadEvent.INITIALIZED);
         return descriptor;
     }
 
@@ -443,7 +442,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                     {
                         httpRequestOptionsBuilder: options.httpRequestOptionsBuilder,
                         httpTimeout: options.httpTimeout,
-                        retryTimes: options.retryTimes,
+                        retryTimes: Math.ceil(options.retryTimes / chunksInfo.length),
                         shouldAppendFile: shouldAppendFile,
                     }
                 ).on(DownloadEvent.STARTED, (chunkIndex) => {

@@ -3,8 +3,10 @@
  * Author: SiFan Wei - weisifan
  * Date: 2020-05-18 17:36
  */
+import process from 'process';
 import {
     Config,
+    DownloadErrorEnum,
     DownloadEvent,
     DownloadTask,
     FileDescriptor,
@@ -13,7 +15,8 @@ import {
     Logger,
     md5DownloadUrlTaskIdGenerator,
     requestMethodHeadFileInformationDescriptor,
-    TaskIdGenerator
+    TaskIdGenerator,
+    ErrorMessage
 } from './Config';
 import * as FileOperator from './util/FileOperator';
 
@@ -30,6 +33,20 @@ export default class DownloadTaskGroup {
     private httpTimeout: number = 30000;
     private retryTimes = 10;
 
+    public constructor() {
+        process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
+            let errMsg: ErrorMessage;
+            if (err && err.errno === -4055) {
+                errMsg = ErrorMessage.fromErrorEnum(DownloadErrorEnum.NO_SPACE_LEFT_ON_DEVICE, err);
+            } else {
+                errMsg = ErrorMessage.fromErrorEnum(DownloadErrorEnum.SYSTEM_ERROR, err);
+            }
+            this.tasks.forEach((task) => {
+                // @ts-ignore
+                task.tryError(-1, errMsg);
+            });
+        });
+    }
 
     public configConfigDir(configDir: string) {
         this.configDir = configDir;
@@ -74,6 +91,7 @@ export default class DownloadTaskGroup {
     public getTasks() {
         const tasks: DownloadTask[] = [];
         this.tasks.forEach((task, key, map) => tasks.push(task));
+
         return tasks;
     }
 

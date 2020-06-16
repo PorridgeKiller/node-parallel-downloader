@@ -31,8 +31,8 @@ async function example(): Promise<DownloadTask> {
     // Logger.printStackTrace();
     const taskGroup = await new DownloadTaskGroup()
         .configConfigDir('./temp_info')
-        .configMaxWorkerCount(3)
-        .configProgressTicktockMillis(150)
+        .configMaxWorkerCount(5)
+        .configProgressTicktockMillis(500)
         .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename?: string) => {
             return crypto.createHash('md5').update(downloadUrl).digest('hex');
         })
@@ -54,6 +54,8 @@ async function example(): Promise<DownloadTask> {
         Logger.debug('+++DownloadEvent.INITIALIZED:', task.getStatus(), '任务创建直到完成, 只会调用一次');
     }).on(DownloadEvent.STARTED, (descriptor) => {
         Logger.debug('+++DownloadEvent.STARTED:', task.getStatus());
+    }).on(DownloadEvent.DOWNLOADING, (descriptor) => {
+        Logger.debug('+++DownloadEvent.DOWNLOADING:', task.getStatus());
     }).on(DownloadEvent.STOPPED, (descriptor) => {
         Logger.debug('+++DownloadEvent.STOPPED:', task.getStatus());
     }).on(DownloadEvent.PROGRESS, (descriptor, progress) => {

@@ -56,7 +56,8 @@ import {
     FileDescriptor, 
     FileInformationDescriptor, 
     ErrorMessage,
-  	requestMethodHeadFileInformationDescriptor
+  	requestMethodHeadFileInformationDescriptor,
+  	CommonUtils
 } from "node-parallel-downloader";
 ```
 
@@ -69,15 +70,19 @@ const taskGroup = new DownloadTaskGroup()
     .configMaxWorkerCount(5)
     // 指定下载进度通知频率/ms
     .configProgressTicktockMillis(1000)
+    // 指定自动重试次数
+    .configRetryTimes(1000)
+    // HTTP超时时间/ms
+    .configHttpTimeout(30000)
     // 指定下载任务taskId的生成方式, taskId要求: 针对同一个下载任务, taskId唯一
     .configTaskIdGenerator(async (downloadUrl: string, storageDir: string, filename?: string) => {
         return md5(downloadUrl);
     })
     // 指定文件尺寸, 文件content-type的获取方式
-		.configFileInfoDescriptor(requestMethodHeadFileInformationDescriptor)
-		// 指定http请求的options
-		.configHttpRequestOptionsBuilder((requestOptions: http.RequestOptions, taskId: string, index: number, from: number, to: number, progress: number) => {
-      	return requestOptions;
+    .configFileInfoDescriptor(requestMethodHeadFileInformationDescriptor)
+    // 指定http请求的options
+    .configHttpRequestOptionsBuilder((requestOptions: http.RequestOptions, taskId: string, index: number, from: number, to: number, progress: number) => {
+        return requestOptions;
     })
 ;
 ```
@@ -108,7 +113,12 @@ task.on(DownloadEvent.INITIALIZED, (descriptor) => {
 // 开始事件
 .on(DownloadEvent.STARTED, (descriptor) => {
     Logger.debug('+++DownloadEvent.STARTED:');
-    Logger.debug('status0:', task.getStatus());
+    Logger.debug('status:', task.getStatus());
+})
+// 开始下载事件
+.on(DownloadEvent.DOWNLOADING, (descriptor) => {
+    Logger.debug('+++DownloadEvent.DOWNLOADING:');
+    Logger.debug('status:', task.getStatus());
 })
 // 暂停事件
 .on(DownloadEvent.STOPPED, (descriptor) => {
@@ -116,11 +126,17 @@ task.on(DownloadEvent.INITIALIZED, (descriptor) => {
 })
 // 下载进度事件
 .on(DownloadEvent.PROGRESS, (descriptor, progress) => {
-    const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
-    const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
-    const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
-    Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`);
-    Logger.debug('status-progress:', task.getStatus());
+    const ticktock = progress.ticktock;
+    const beautified = CommonUtils.beautifyProgress(progress, ticktock);
+    const chunks: any[] = [];
+    progress.chunks.forEach((chunkProgress: any) => {
+        const beautifiedChunk = CommonUtils.beautifyProgress(chunkProgress, ticktock);
+        beautifiedChunk.noResp = chunkProgress.noResp;
+        beautifiedChunk.retry = chunkProgress.retry;
+        chunks.push(beautifiedChunk);
+    });
+    beautified.chunks = chunks;
+    Logger.debug('+++DownloadEvent.PROGRESS:', JSON.stringify(beautified));
 })
 // 将要合并事件
 .on(DownloadEvent.MERGE, (descriptor) => {
@@ -129,12 +145,12 @@ task.on(DownloadEvent.INITIALIZED, (descriptor) => {
 // 下载完成事件
 .on(DownloadEvent.FINISHED, (descriptor) => {
     Logger.debug('+++DownloadEvent.FINISHED:', descriptor);
-    Logger.debug('status3:', task.getStatus());
+    Logger.debug('status:', task.getStatus());
 })
 // 下载错误事件
 .on(DownloadEvent.ERROR, (descriptor, errorMessage) => {
     Logger.error('+++DownloadEvent.ERROR:', descriptor, errorMessage);
-    Logger.error('status4:', task.getStatus());
+    Logger.error('status:', task.getStatus());
 })
 // 任务取消事件
 .on(DownloadEvent.CANCELED, (descriptor) => {
@@ -186,6 +202,7 @@ import {
     FileDescriptor,
     Logger,
     requestMethodHeadFileInformationDescriptor,
+    CommonUtils
 } from './lib/Config';
 import http from 'http';
 import crypto from 'crypto';
@@ -199,6 +216,7 @@ Logger.setProxy(new ConsoleLogger());
  * 正常下载流程
  */
 async function example(): Promise<DownloadTask> {
+    // Logger.printStackTrace();
     const taskGroup = await new DownloadTaskGroup()
         .configConfigDir('./temp_info')
         .configMaxWorkerCount(5)
@@ -210,24 +228,36 @@ async function example(): Promise<DownloadTask> {
         .configHttpRequestOptionsBuilder((requestOptions: http.RequestOptions, taskId: string, index: number, from: number, to: number, progress: number) => {
             return requestOptions;
         })
+        .configRetryTimes(10000)
+        .configHttpTimeout(30000)
         .loadFromConfigDir();
 
     const task: DownloadTask = await taskGroup.newTask(
         'https://a24.gdl.netease.com/Terminal.7z',
         'temp_repo',
-        undefined
+        'Terminal.7z'
     );
+
     task.on(DownloadEvent.INITIALIZED, (descriptor) => {
         Logger.debug('+++DownloadEvent.INITIALIZED:', task.getStatus(), '任务创建直到完成, 只会调用一次');
     }).on(DownloadEvent.STARTED, (descriptor) => {
         Logger.debug('+++DownloadEvent.STARTED:', task.getStatus());
+    }).on(DownloadEvent.DOWNLOADING, (descriptor) => {
+        Logger.debug('+++DownloadEvent.DOWNLOADING:', task.getStatus());
     }).on(DownloadEvent.STOPPED, (descriptor) => {
         Logger.debug('+++DownloadEvent.STOPPED:', task.getStatus());
     }).on(DownloadEvent.PROGRESS, (descriptor, progress) => {
-        const percent = Math.round((progress.progress / progress.contentLength) * 10000) / 100;
-        const speedMbs = Math.round(progress.speed / 1024 / 1024 * 100) / 100;
-        const progressMbs = Math.round(progress.progress / 1024 / 1024 * 100) / 100;
-        Logger.debug('+++DownloadEvent.PROGRESS:', `percent=${percent}%; speed=${speedMbs}MB/s; progressMbs=${progressMbs}MB`, task.getStatus(), JSON.stringify(progress));
+        const ticktock = progress.ticktock;
+        const beautified = CommonUtils.beautifyProgress(progress, ticktock);
+        const chunks: any[] = [];
+        progress.chunks.forEach((chunkProgress: any) => {
+            const beautifiedChunk = CommonUtils.beautifyProgress(chunkProgress, ticktock);
+            beautifiedChunk.noResp = chunkProgress.noResp;
+            beautifiedChunk.retry = chunkProgress.retry;
+            chunks.push(beautifiedChunk);
+        });
+        beautified.chunks = chunks;
+        Logger.debug('+++DownloadEvent.PROGRESS:', JSON.stringify(beautified));
     }).on(DownloadEvent.MERGE, (descriptor) => {
         Logger.debug('+++DownloadEvent.MERGE:', descriptor, task.getStatus());
     }).on(DownloadEvent.FINISHED, (descriptor) => {
