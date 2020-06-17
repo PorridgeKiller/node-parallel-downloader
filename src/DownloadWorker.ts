@@ -47,7 +47,6 @@ export default class DownloadWorker extends DownloadStatusHolder {
     private req: http.ClientRequest | undefined;
     private resp: http.IncomingMessage | undefined;
     private noResponseTime: number = 0;
-    private writeStream?: FileOperator.WriteStream;
 
 
     constructor(taskId: string, storageDir: string, length: number, contentType: string, index: number,
@@ -101,9 +100,9 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 状态设置为DownloadStatus.DOWNLOADING
      * 块任务恢复
      */
-    public async tryResume(emit: boolean) {
+    public async tryResume(emit: boolean, force?: boolean) {
         const forceAppend = this.getStatus() !== DownloadStatus.INIT;
-        let flag = await this.compareAndSwapStatus(DownloadStatus.DOWNLOADING, true);
+        let flag = await this.compareAndSwapStatus(DownloadStatus.DOWNLOADING, true, force);
         if (flag) {
             await this.prepare(forceAppend);
             if (await this.tryMerge(true)) {
@@ -155,7 +154,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
             emit = emit || (error.type === 'retry' && this.retryTimes < this.options.retryTimes);
             if (error.type === 'retry') {
                 if (this.retryTimes < this.options.retryTimes) {
-                    flag = await this.tryResume(false);
+                    flag = await this.tryResume(false, true);
                     this.retryTimes++;
                     Logger.warn(`error occurred but retry ${this.retryTimes}: ${JSON.stringify(error)}`);
                     return flag;
@@ -320,7 +319,6 @@ export default class DownloadWorker extends DownloadStatusHolder {
         } else {
             stream = FileOperator.openWriteStream(chunkFilePath);
         }
-        this.writeStream = stream;
         resp.on('data', (dataBytes: any) => {
             if (!this.canWriteFile() || !stream.writable) {
                 this.abortRequest();
@@ -359,11 +357,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 废弃当前请求
      */
     private abortRequest() {
-        const {req, resp, writeStream} = this;
-        if (writeStream) {
-            writeStream.close();
-            this.writeStream = undefined;
-        }
+        const {req, resp} = this;
         if (req) {
             req.abort();
             req.destroy();

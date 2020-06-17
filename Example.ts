@@ -40,14 +40,14 @@ async function example(): Promise<DownloadTask> {
         .configHttpRequestOptionsBuilder((requestOptions: http.RequestOptions, taskId: string, index: number, from: number, to: number, progress: number) => {
             return requestOptions;
         })
-        .configRetryTimes(10000)
-        .configHttpTimeout(30000)
+        .configRetryTimes(5)
+        .configHttpTimeout(3000)
         .loadFromConfigDir();
 
     const task: DownloadTask = await taskGroup.newTask(
-        'https://a24.gdl.netease.com/Terminal.7z',
+        'https://a24.gdl.netease.com/2005061131_Beat Saber-after-mod-20200605112500.zip',
         'temp_repo',
-        'Terminal.7z'
+        'Beat Saber.zip'
     );
 
     task.on(DownloadEvent.INITIALIZED, (descriptor) => {
@@ -116,8 +116,8 @@ async function example(): Promise<DownloadTask> {
     }).on(DownloadEvent.CANCELED, (descriptor) => {
         Logger.warn('+++DownloadEvent.CANCELED:', descriptor, task2.getStatus());
     });
-    const started2 = await task2.start();
-    Logger.assert(started2);
+    // const started2 = await task2.start();
+    // Logger.assert(started2);
 
     return task;
 }

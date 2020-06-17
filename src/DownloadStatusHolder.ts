@@ -33,9 +33,13 @@ export default class DownloadStatusHolder extends EventEmitter {
      *
      * @param nextStatus 要设置的状态
      * @param reentrant 是否可重入, 默认不可重入
+     * @param force 是否强制设置
      */
-    protected compareAndSwapStatus(nextStatus: DownloadStatus, reentrant?: boolean): boolean {
+    protected compareAndSwapStatus(nextStatus: DownloadStatus, reentrant?: boolean, force?: boolean): boolean {
         const prevStatus = this.getStatus();
+        if (force) {
+            return this.setStatus(nextStatus);
+        }
         // 第一次判断: 前后状态是否一样, 一样就直接返回false表示状态不可重复设置
         if (prevStatus === nextStatus) {
             return !!reentrant;
