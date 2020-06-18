@@ -131,23 +131,23 @@ export default class DownloadTask extends DownloadStatusHolder {
      * 尝试状态设置为DownloadStatus.DOWNLOADING，并启动workers
      */
     private async tryResume() {
-        if (await this.tryMerge()) {
-            // 开始前再判断一下是不是所有块已经下载完, 如果已经下载完毕，直接合并，就不用再启动worker
-            return true;
-        }
         const expectStatus = DownloadStatus.DOWNLOADING;
         const flag = this.compareAndSwapStatus(expectStatus);
         if (flag) {
             const {workers} = this;
+            let started = false;
             if (workers) {
                 for (let i = 0; i < workers.length; i++) {
                     const worker: DownloadWorker = workers[i];
-                    await worker.tryStart(true);
+                    started = await worker.tryStart(true) || started;
                 }
-                this.startProgressTicktockLooper();
             }
-            this.emitEvent(expectStatus, DownloadEvent.DOWNLOADING);
-            this.emitEvent(expectStatus, DownloadEvent.PROGRESS, this.computeCurrentProcess());
+            // 只要有一个worker启动成功, 就代表下载还要继续
+            if (started) {
+                this.startProgressTicktockLooper();
+                this.emitEvent(expectStatus, DownloadEvent.DOWNLOADING);
+                this.emitEvent(expectStatus, DownloadEvent.PROGRESS, this.computeCurrentProcess());
+            }
         }
         return flag;
     }
@@ -168,6 +168,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                     await w.tryStop(false);
                 }
             }
+            this.stopProgressTicktockLooper();
             this.emitEvent(expectStatus, DownloadEvent.STOPPED);
         }
         return flag;
@@ -236,7 +237,9 @@ export default class DownloadTask extends DownloadStatusHolder {
         const flag = this.compareAndSwapStatus(expectStatus);
         if (flag) {
             const {descriptor} = this;
-            const firstChunkFilePath = CommonUtils.getChunkFilePath(descriptor.taskId, descriptor.storageDir, 0);
+            // @ts-ignore
+            const time = new Date(descriptor.createTime).format('yyyyMMddHHmms');
+            const firstChunkFilePath = CommonUtils.getChunkFilePath(descriptor.taskId, descriptor.storageDir, 0, time);
             const outputFilePath = this.getOutputFilePath();
             const renameError = await FileOperator.rename(firstChunkFilePath, outputFilePath);
             if (renameError) {
@@ -267,6 +270,7 @@ export default class DownloadTask extends DownloadStatusHolder {
             // 删除info文件
             await this.deleteInfoFile();
             const err = await FileOperator.deleteFileOrDirAsync(this.getDownloadDir());
+            err && Logger.warn(err);
             this.emitEvent(expectStatus, DownloadEvent.FINISHED);
         }
         return flag;
@@ -277,6 +281,7 @@ export default class DownloadTask extends DownloadStatusHolder {
      */
     private async tryMerge() {
         if (this.canAllWorkersMerge()) {
+            this.emitEvent(this.getStatus(), DownloadEvent.PROGRESS, this.computeCurrentProcess());
             const expectStatus = DownloadStatus.MERGING;
             const flag = this.compareAndSwapStatus(expectStatus);
             if (flag) {
@@ -313,6 +318,10 @@ export default class DownloadTask extends DownloadStatusHolder {
         this.stopProgressTicktockLooper();
         const {progressTicktockMillis} = this.options;
         this.progressNumber = setInterval(() => {
+            if (this.getStatus() !== DownloadStatus.DOWNLOADING) {
+                this.stopProgressTicktockLooper();
+                return;
+            }
             this.emitEvent(DownloadStatus.DOWNLOADING, DownloadEvent.PROGRESS, this.computeCurrentProcess());
         }, progressTicktockMillis);
     }
@@ -444,6 +453,7 @@ export default class DownloadTask extends DownloadStatusHolder {
                         httpTimeout: options.httpTimeout,
                         retryTimes: Math.ceil(options.retryTimes / chunksInfo.length),
                         shouldAppendFile: shouldAppendFile,
+                        createTime: descriptor.createTime,
                     }
                 ).on(DownloadEvent.STARTED, (chunkIndex) => {
 
@@ -492,7 +502,9 @@ export default class DownloadTask extends DownloadStatusHolder {
 
     private async canRenameMergedFile() {
         const {descriptor} = this;
-        const firstChunkFilePath = CommonUtils.getChunkFilePath(descriptor.taskId, descriptor.storageDir, 0);
+        // @ts-ignore
+        const time = new Date(descriptor.createTime).format('yyyyMMddHHmms');
+        const firstChunkFilePath = CommonUtils.getChunkFilePath(descriptor.taskId, descriptor.storageDir, 0, time);
         if (await FileOperator.existsAsync(firstChunkFilePath, false)) {
             const fileLength = await FileOperator.fileLengthAsync(firstChunkFilePath);
             // @ts-ignore
@@ -506,7 +518,9 @@ export default class DownloadTask extends DownloadStatusHolder {
 
     private getDownloadDir() {
         const {descriptor} = this;
-        return FileOperator.pathJoin(descriptor.storageDir, descriptor.taskId);
+        // @ts-ignore
+        const time = new Date(descriptor.createTime).format('yyyyMMddHHmms');
+        return FileOperator.pathJoin(descriptor.storageDir, `${descriptor.taskId}-${time}`);
     }
 
     private getOutputFilePath() {
@@ -520,8 +534,10 @@ export default class DownloadTask extends DownloadStatusHolder {
      */
     private async mergeChunks() {
         const {descriptor} = this;
+        // @ts-ignore
+        const time = new Date(descriptor.createTime).format('yyyyMMddHHmms');
         // 直接往第0个块文件中追加
-        const firstChunkFilePath = CommonUtils.getChunkFilePath(descriptor.taskId, descriptor.storageDir, 0);
+        const firstChunkFilePath = CommonUtils.getChunkFilePath(descriptor.taskId, descriptor.storageDir, 0, time);
         this.printLog(`mergeAllBlocks into: ${firstChunkFilePath}`);
         const writeStream: FileOperator.WriteStream = FileOperator.openAppendStream(firstChunkFilePath);
         for (let i = 1; i < descriptor.chunks; i++) {
@@ -550,34 +566,43 @@ export default class DownloadTask extends DownloadStatusHolder {
         // @ts-ignore
         const chunkFilePath = this.workers[i].getChunkFilePath();
         this.printLog(`merging: ${chunkFilePath}`);
-        return new Promise((resolve, reject) => {
-            if (!this.canReadWriteFile()) {
-                resolve(false);
-                return;
-            }
-            const readStream = FileOperator.openReadStream(chunkFilePath);
-            readStream.on('data', (chunk) => {
-                if (!this.canReadWriteFile()) {
+        if (!this.canReadWriteFile()) {
+            return false;
+        }
+        const readStream = FileOperator.openReadStream(chunkFilePath);
+        let success = false;
+        try {
+            const promise = new Promise<boolean>((resolve, reject) => {
+                readStream.on('data', (chunk) => {
+                    if (!this.canReadWriteFile()) {
+                        readStream.close();
+                        writeStream.close();
+                        resolve(false);
+                        return;
+                    }
+                    FileOperator.doWriteStream(writeStream, chunk).catch((err) => {
+                        readStream.close();
+                        writeStream.close();
+                        this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.APPEND_TARGET_FILE_ERROR, err));
+                    });
+                });
+                readStream.on('end', async () => {
                     readStream.close();
+                    resolve(true);
+                });
+                readStream.on('error', (err) => {
                     writeStream.close();
-                    resolve(false);
-                    return;
-                }
-                FileOperator.doWriteStream(writeStream, chunk).catch((err) => {
-                    readStream.close();
-                    writeStream.close();
-                    this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.APPEND_TARGET_FILE_ERROR, err));
+                    this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.READ_CHUNK_FILE_ERROR, err));
                 });
             });
-            readStream.on('end', async () => {
+            promise.finally(() => {
                 readStream.close();
-                resolve(true);
             });
-            readStream.on('error', (err) => {
-                writeStream.close();
-                this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.READ_CHUNK_FILE_ERROR, err));
-            });
-        });
+            success = await promise;
+        } finally {
+            readStream.close();
+        }
+        return success;
     }
 
     private canReadWriteFile() {

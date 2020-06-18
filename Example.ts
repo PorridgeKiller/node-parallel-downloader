@@ -40,14 +40,14 @@ async function example(): Promise<DownloadTask> {
         .configHttpRequestOptionsBuilder((requestOptions: http.RequestOptions, taskId: string, index: number, from: number, to: number, progress: number) => {
             return requestOptions;
         })
-        .configRetryTimes(5)
-        .configHttpTimeout(3000)
+        .configRetryTimes(10000)
+        .configHttpTimeout(30000)
         .loadFromConfigDir();
 
     const task: DownloadTask = await taskGroup.newTask(
-        'https://a24.gdl.netease.com/2005061131_Beat Saber-after-mod-20200605112500.zip',
+        'https://a24.gdl.netease.com/Terminal.7z',
         'temp_repo',
-        'Beat Saber.zip'
+        'Terminal.7z'
     );
 
     task.on(DownloadEvent.INITIALIZED, (descriptor) => {

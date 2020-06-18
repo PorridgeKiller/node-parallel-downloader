@@ -134,7 +134,7 @@ const Logger: LoggerInterface = new DownloadLogger();
 
 
 export const Config = {
-    INFO_FILE_EXTENSION: '.info.json',
+    INFO_FILE_EXTENSION: '.down.json',
     BLOCK_FILENAME_EXTENSION: '.tmp',
 };
 
@@ -231,7 +231,7 @@ export interface FileDescriptor {
     // 是否支持断点续传
     resume: boolean;
     md5: string;
-    createTime: Date;
+    createTime: number;
     attachment?: any;
     computed: {
         chunksInfo: ChunkInfo[];

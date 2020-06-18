@@ -23,6 +23,7 @@ export interface WorkerOptions {
     httpTimeout: number;
     retryTimes: number;
     shouldAppendFile: boolean;
+    createTime: number;
 }
 
 export default class DownloadWorker extends DownloadStatusHolder {
@@ -47,6 +48,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
     private req: http.ClientRequest | undefined;
     private resp: http.IncomingMessage | undefined;
     private noResponseTime: number = 0;
+    private writeStream?: FileOperator.WriteStream;
 
 
     constructor(taskId: string, storageDir: string, length: number, contentType: string, index: number,
@@ -61,7 +63,9 @@ export default class DownloadWorker extends DownloadStatusHolder {
         this.to = to;
         this.downloadUrl = downloadUrl;
         this.options = options;
-        this.chunkFilePath = CommonUtils.getChunkFilePath(taskId, storageDir, index);
+        // @ts-ignore
+        const time = new Date(options.createTime).format('yyyyMMddHHmms');
+        this.chunkFilePath = CommonUtils.getChunkFilePath(taskId, storageDir, index, time);
         this.tryInit();
     }
 
@@ -106,7 +110,8 @@ export default class DownloadWorker extends DownloadStatusHolder {
         if (flag) {
             await this.prepare(forceAppend);
             if (await this.tryMerge(true)) {
-                return true;
+                // 可以合并就代表不能启动了
+                return false;
             }
             this.doDownloadRequest();
             emit && this.emit(DownloadEvent.DOWNLOADING, this.index);
@@ -212,8 +217,10 @@ export default class DownloadWorker extends DownloadStatusHolder {
     }
 
     public getChunkFilePath() {
-        const {taskId, storageDir, index} = this;
-        return CommonUtils.getChunkFilePath(taskId, storageDir, index);
+        const {taskId, storageDir, index, options} = this;
+        // @ts-ignore
+        const time = new Date(options.createTime).format('yyyyMMddHHmms');
+        return CommonUtils.getChunkFilePath(taskId, storageDir, index, time);
     }
 
     private async existsChunkFile() {
@@ -319,6 +326,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
         } else {
             stream = FileOperator.openWriteStream(chunkFilePath);
         }
+        this.writeStream = stream;
         resp.on('data', (dataBytes: any) => {
             if (!this.canWriteFile() || !stream.writable) {
                 this.abortRequest();
@@ -357,16 +365,20 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 废弃当前请求
      */
     private abortRequest() {
-        const {req, resp} = this;
+        const {req, resp, writeStream} = this;
+        if (writeStream) {
+            writeStream.close();
+            this.writeStream = undefined;
+        }
         if (req) {
             req.abort();
             req.destroy();
+            this.req = undefined;
         }
-        this.req = undefined;
         if (resp) {
             resp.destroy();
+            this.resp = undefined;
         }
-        this.resp = undefined;
     }
 
     public getProgress(ticktock: number) {
@@ -410,7 +422,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 根据状态判断是否可以写文件
      */
     protected canWriteFile() {
-        return this.getStatus() === DownloadStatus.DOWNLOADING;
+        return this.getStatus() === DownloadStatus.DOWNLOADING && (this.progress < this.length);
     }
 
 
