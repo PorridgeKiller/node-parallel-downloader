@@ -328,7 +328,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
         }
         this.writeStream = stream;
         resp.on('data', (dataBytes: any) => {
-            if (!this.canWriteFile() || !stream.writable) {
+            if (!this.canWriteFile() || !stream.writable || !stream.destroyed) {
                 this.abortRequest();
                 return;
             }
@@ -348,6 +348,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
                 } else {
                     // 正常
                     if (this.updateProgress(dataBytes.length) >= this.length) {
+                        this.abortRequest();
                         // 进度已经100%
                         this.printLog(`-> response end while status @${this.getStatus()}`);
                         // 因为其它而停止下载任务或者被暂停时, 不应该发送MERGE事件通知DownloadTask合并任务
@@ -368,6 +369,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
         const {req, resp, writeStream} = this;
         if (writeStream) {
             writeStream.close();
+            writeStream.destroy();
             this.writeStream = undefined;
         }
         if (req) {
