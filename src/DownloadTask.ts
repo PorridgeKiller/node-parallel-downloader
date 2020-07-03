@@ -280,6 +280,7 @@ export default class DownloadTask extends DownloadStatusHolder {
      * 设置状态为DOWNLOAD.MERGE
      */
     private async tryMerge() {
+        Logger.debug('this.canAllWorkersMerge()', this.canAllWorkersMerge());
         if (this.canAllWorkersMerge()) {
             this.emitEvent(this.getStatus(), DownloadEvent.PROGRESS, this.computeCurrentProcess());
             const expectStatus = DownloadStatus.MERGING;
@@ -406,7 +407,7 @@ export default class DownloadTask extends DownloadStatusHolder {
             descriptor.chunks = 1;
             chunksInfo.push({
                 index: 0,
-                length: -1,
+                length: contentLength,
                 from: 0,
                 to: -1,
             });

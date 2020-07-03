@@ -109,7 +109,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
         let flag = await this.compareAndSwapStatus(DownloadStatus.DOWNLOADING, true, force);
         if (flag) {
             await this.prepare(forceAppend);
-            if (await this.tryMerge(true)) {
+            if (this.to >= 0 && await this.tryMerge(true)) {
                 // 可以合并就代表不能启动了
                 return false;
             }
@@ -158,7 +158,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
             this.abortRequest();
             emit = emit || (error.type === 'retry' && this.retryTimes < this.options.retryTimes);
             if (error.type === 'retry') {
-                if (this.retryTimes < this.options.retryTimes) {
+                if (this.to >= 0 && this.retryTimes < this.options.retryTimes) {
                     flag = await this.tryResume(false, true);
                     this.retryTimes++;
                     Logger.warn(`error occurred but retry ${this.retryTimes}: ${JSON.stringify(error)}`);
@@ -186,7 +186,8 @@ export default class DownloadWorker extends DownloadStatusHolder {
     }
 
     public async tryMerge(emit: boolean) {
-        if (this.progress >= this.length) {
+        Logger.debug('this.progress', this.progress);
+        if (!this.length || this.progress >= this.length) {
             const flag = this.compareAndSwapStatus(DownloadStatus.MERGING);
             if (flag) {
                 this.abortRequest();
@@ -328,7 +329,8 @@ export default class DownloadWorker extends DownloadStatusHolder {
         }
         this.writeStream = stream;
         resp.on('data', (dataBytes: any) => {
-            if (!this.canWriteFile() || !stream.writable || !stream.destroyed) {
+            // Logger.debug('dataBytes:', dataBytes.length, this.canWriteFile(), stream.writable, stream.destroyed);
+            if (!this.canWriteFile() || !stream.writable) {
                 this.abortRequest();
                 return;
             }
@@ -346,8 +348,10 @@ export default class DownloadWorker extends DownloadStatusHolder {
                         ErrorMessage.fromErrorEnum(DownloadErrorEnum.WRITE_CHUNK_FILE_ERROR, err)
                     );
                 } else {
+                    const progress = this.updateProgress(dataBytes.length);
                     // 正常
-                    if (this.updateProgress(dataBytes.length) >= this.length) {
+                    if (progress >= this.length) {
+                        // Logger.debug(this.progress, this.length);
                         this.abortRequest();
                         // 进度已经100%
                         this.printLog(`-> response end while status @${this.getStatus()}`);
@@ -359,6 +363,12 @@ export default class DownloadWorker extends DownloadStatusHolder {
                 }
             });
         });
+        if (this.to < 0) {
+            resp.on('end', () => {
+                this.abortRequest();
+                this.tryMerge(true);
+            });
+        }
     }
 
 
@@ -413,7 +423,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
 
 
     public isResume() {
-        return this.length > 0;
+        return this.to >= 0;
     }
 
     public canMerge() {
@@ -424,7 +434,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
      * 根据状态判断是否可以写文件
      */
     protected canWriteFile() {
-        return this.getStatus() === DownloadStatus.DOWNLOADING && (this.progress < this.length);
+        return this.getStatus() === DownloadStatus.DOWNLOADING && (this.to < 0 || (this.progress < this.length));
     }
 
 

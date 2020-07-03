@@ -49,7 +49,7 @@ const requestMethodHeadFileInformationDescriptor: FileInformationDescriptor = as
                 // @ts-ignore
                 descriptor.contentType = responseHeaders['content-type'];
                 const acceptRanges = responseHeaders['accept-ranges'];
-                if (acceptRanges && acceptRanges === 'bytes' && !!descriptor.contentLength) {
+                if (acceptRanges && acceptRanges.indexOf('bytes') >= 0 && !!descriptor.contentLength) {
                     descriptor.resume = true;
                 } else {
                     descriptor.resume = false;
