@@ -329,7 +329,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
         this.writeStream = stream;
         resp.on('data', (dataBytes: any) => {
             // Logger.debug('dataBytes:', dataBytes.length, this.canWriteFile(), stream.writable, stream.destroyed);
-            if (!this.canWriteFile() || !stream.writable) {
+            if (!this.canWriteFile() || !stream.writable || stream.destroyed) {
                 this.abortRequest();
                 return;
             }
