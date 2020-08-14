@@ -57,6 +57,27 @@ export async function mkdirsIfNonExistsAsync(dirPath: string): Promise<boolean> 
     return false;
 }
 
+// 递归创建目录 异步方法
+export async function mkdirsIfNonExistsAsync2(dirPath: string): Promise<boolean> {
+    if (await existsAsync(dirPath, true).catch(() => {
+        return true;
+    })) {
+        return true;
+    }
+    if (await mkdirsIfNonExistsAsync(path.dirname(dirPath)).catch(() => true)) {
+        return new Promise<boolean>((resolve, reject) => {
+            fs.mkdir(dirPath, async (err: NodeJS.ErrnoException | null) => {
+                if (err) {
+                    reject(true);
+                } else {
+                    resolve(true);
+                }
+            });
+        });
+    }
+    return false;
+}
+
 /**
  * 是否存在指定文件
  * @param filePath 要判断的文件绝对路径

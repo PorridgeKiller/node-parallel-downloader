@@ -98,11 +98,24 @@ export default class DownloadTask extends DownloadStatusHolder {
         if (flag) {
             const {descriptor, isFromConfigFile} = this;
             // 创建下载目录，用来存放下载块临时文件
-            const created = await FileOperator.mkdirsIfNonExistsAsync(this.getDownloadDir()).catch(async (err) => {
+            const created1 = await FileOperator.mkdirsIfNonExistsAsync(descriptor.configDir).catch(async (err) => {
+                if (err.errno === -4075) {
+                    return true;
+                }
                 await this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.CREATE_DOWNLOAD_DIR_ERROR, err));
                 return false;
             });
-            if (!created) {
+            if (!created1) {
+                return false;
+            }
+            const created2 = await FileOperator.mkdirsIfNonExistsAsync2(this.getDownloadDir()).catch(async (err) => {
+                if (err.errno === -4075) {
+                    return true;
+                }
+                await this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.CREATE_DOWNLOAD_DIR_ERROR, err));
+                return false;
+            });
+            if (!created2) {
                 return false;
             }
             const skipDescribeAndDivide = isFromConfigFile || prevStatus === DownloadStatus.STOPPED || prevStatus === DownloadStatus.ERROR;
@@ -122,6 +135,8 @@ export default class DownloadTask extends DownloadStatusHolder {
                     Logger.error(e);
                     this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.FAILED_TO_RESUME_TASK, e))
                 });
+            }).catch((err) => {
+                this.tryError(-1, ErrorMessage.fromErrorEnum(DownloadErrorEnum.SYSTEM_ERROR, err))
             });
         }
         return flag;
@@ -379,9 +394,13 @@ export default class DownloadTask extends DownloadStatusHolder {
         this.descriptor = descriptor;
         this.printLog(`prepareForNewTask: ${JSON.stringify(descriptor)}`);
         const {chunks, contentLength} = descriptor;
-        if (!await FileOperator.mkdirsIfNonExistsAsync(descriptor.configDir)) {
-            throw new Error(`create dir ${descriptor.configDir} failed`);
-        }
+        await FileOperator.mkdirsIfNonExistsAsync(descriptor.configDir).catch((err) => {
+            Logger.debug('err33333333333333333', err);
+            if (err.errno === -4075) {
+                return true;
+            }
+            throw err;
+        });
 
         const chunksInfo: ChunkInfo[] = [];
         if (this.isResume()) {
