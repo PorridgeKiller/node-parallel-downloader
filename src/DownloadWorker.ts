@@ -143,6 +143,7 @@ export default class DownloadWorker extends DownloadStatusHolder {
             if (await FileOperator.existsAsync(this.getChunkFilePath(), false)) {
                 await FileOperator.deleteFileOrDirAsync(this.getChunkFilePath());
             }
+            this.printLog('task canceled, chunk file unlinked:', this.getChunkFilePath());
             emit && this.emit(DownloadEvent.CANCELED, this.index);
         }
         return flag;

@@ -21,7 +21,7 @@ export default class DownloadStatusHolder extends EventEmitter {
         return true;
     }
 
-    public getStatus() {
+    public getStatus(): DownloadStatus {
         return this.status;
     }
 

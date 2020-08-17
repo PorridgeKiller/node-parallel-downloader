@@ -154,19 +154,6 @@ export default class DownloadTaskGroup {
         return task && await task.cancel();
     }
 
-    public async addTask(task: DownloadTask): Promise<boolean> {
-        const tasks = this.tasks;
-        if (tasks.has(task.getTaskId())) {
-            return false;
-        }
-        tasks.set(task.getTaskId(), task);
-        return true;
-    }
-
-
-    public async remove(taskId: string): Promise<boolean> {
-        return this.tasks.delete(taskId);
-    }
 
     /**
      * 根据id获取task

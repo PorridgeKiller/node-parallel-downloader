@@ -206,10 +206,12 @@ export default class DownloadTask extends DownloadStatusHolder {
                 }
             }
             let err = await FileOperator.deleteFileOrDirAsync(this.getDownloadDir());
+            this.printLog('task canceled, download directory unlinked:', this.getDownloadDir());
             const outputFilePath = this.getOutputFilePath();
             if (await FileOperator.existsAsync(outputFilePath, false)) {
                 err = await FileOperator.deleteFileOrDirAsync(outputFilePath);
             }
+            this.printLog('task canceled, output file unlinked:', outputFilePath);
             this.emitEvent(expectStatus, DownloadEvent.CANCELED);
         }
         return flag;

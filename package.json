@@ -1,6 +1,6 @@
 {
   "name": "node-parallel-downloader",
-  "version": "1.0.45",
+  "version": "1.0.46",
   "description": "A parallel downloader implemented by Nodejs",
   "main": "lib/Config.js",
   "types": "lib/Config.d.ts",
