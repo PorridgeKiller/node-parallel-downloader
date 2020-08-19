@@ -32,13 +32,13 @@ npm run stricttest
 
 ##### 2.1. 主要的类有两个
 
+- DownloadTaskGroup 
+
+管理一个下载任务组, 内部管理多个DownloadTask，用来创建任务。**不同的DownloadTaskGroup需要分别将 `ConfigDir` 指向不同的目录，否则会导致一些文件状态不一致的问题。**
 - DownloadTask extends EventEmitter
 
 
-继承了EventEmitter，管理一个下载任务, 一个文件的下载任务对应一个Task, 一个Task内部管理了多个Worker. 下载任务会被分解为多个文件块来下载, 最后合并为目标文件（相当于多线程下载，但实际上只有一个线程，却得到不低于多线程的效果，得益于nodejs的异步事件驱动机制）
-- DownloadTaskGroup 
-
-管理一个下载任务组, 内部管理多个DownloadTask，用来创建任务
+继承了EventEmitter，管理一个下载任务, 一个文件的下载任务对应一个Task, 一个Task内部管理了多个Worker. 下载任务会被分解为多个文件块来下载, 最后合并为目标文件（相当于多线程下载，但实际上只有一个线程，却得到不低于多线程的效果，得益于nodejs的异步事件驱动 + 多路IO复用机制）
 
 ##### 2.2. 使用方式
 
